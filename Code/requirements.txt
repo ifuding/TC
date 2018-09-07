@@ -1,0 +1,6 @@
+sklearn
+scipy
+pandas
+numpy
+lightgbm
+h5py
