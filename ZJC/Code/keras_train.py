@@ -16,7 +16,7 @@ from sklearn.cross_validation import KFold
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from sklearn.metrics import log_loss
 
-from tensorflow.python.keras import layers
+from tensorflow.python.keras import layers, preprocessing
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.layers import Dense, Input, Lambda, LSTM, TimeDistributed, SimpleRNN, \
         GRU, Bidirectional, GlobalAveragePooling1D, GlobalMaxPooling1D, Activation, \
@@ -253,9 +253,10 @@ class DNN_Model:
 
         x = layers.GlobalAveragePooling2D(name='avg_pool')(x)
         # x = Lambda(lambda x: x, name = 'densenet_features')(x)
+        # x = self.full_connect_layer(x, self.hidden_dim, weight_decay = weight_decay, kernel_initializer = kernel_initializer)
         x = layers.Dense(self.cat_max, activation='softmax',
-            kernel_initializer = kernel_initializer, 
-            kernel_regularizer = l2(weight_decay), 
+            # kernel_initializer = kernel_initializer, 
+            # kernel_regularizer = l2(weight_decay), 
             name='fc')(x)
         
         model = Model(img_input, x)
@@ -263,6 +264,23 @@ class DNN_Model:
         model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
         
         return model
+
+    def full_connect_layer(self, input, hidden_dim, weight_decay = 1e-4, kernel_initializer = 'he_normal'):
+        full_connect = input
+        for hn in hidden_dim:
+            fc_in = full_connect
+            # if self.full_connect_dropout > 0:
+    #         full_connect = Dropout(0.2)(full_connect)
+            full_connect = BatchNormalization(epsilon=1.001e-5)(full_connect)
+            # full_connect = Dense(hn, kernel_regularizer = l2(0.001), activity_regularizer = l1(0.001))(full_connect)
+    #         full_connect = Concatenate()([Dense(hn, kernel_initializer='lecun_uniform', activation = 'relu')(full_connect), 
+    #             Dense(hn, kernel_initializer='lecun_uniform', activation = 'sigmoid')(full_connect)])
+            full_connect = Dense(hn, kernel_initializer=kernel_initializer, activation = 'relu', kernel_regularizer = l2(weight_decay))(full_connect)
+            # full_connect = self.act_blend(full_connect)
+            # if self.full_connect_dropout > 0:
+    #             full_connect = Dropout(self.full_connect_dropout)(full_connect) #Dropout(self.full_connect_dropout)(full_connect)
+    #         full_connect = Concatenate()([fc_in, full_connect])
+        return full_connect
 
     def act_blend(self, linear_input):
         full_conv_selu = Activation('selu')(linear_input)
@@ -272,25 +290,6 @@ class DNN_Model:
         full_conv_tanh = Activation('tanh')(linear_input)
         full_conv = Concatenate()([full_conv_sigmoid, full_conv_relu, full_conv_selu])
         return full_conv
-
-
-    def full_connect_layer(self, input):
-        full_connect = input
-        for hn in self.hidden_dim:
-            fc_in = full_connect
-            # if self.full_connect_dropout > 0:
-            #     full_connect = Dropout(self.full_connect_dropout)(full_connect)
-            # full_connect = BatchNormalization()(full_connect)
-            # full_connect = Dense(hn, kernel_regularizer = l2(0.001), activity_regularizer = l1(0.001))(full_connect)
-            full_connect = Concatenate()([Dense(hn, kernel_initializer='lecun_uniform', activation = 'relu')(full_connect), 
-                Dense(hn, kernel_initializer='lecun_uniform', activation = 'sigmoid')(full_connect)])
-            # full_connect = Dense(hn, kernel_initializer='lecun_uniform', activation = 'sigmoid')(full_connect)
-            # full_connect = self.act_blend(full_connect)
-            # if self.full_connect_dropout > 0:
-            #     full_connect = Dropout(self.full_connect_dropout)(full_connect) #Dropout(self.full_connect_dropout)(full_connect)
-            full_connect = Concatenate()([fc_in, full_connect])
-        return full_connect
-
 
     def DNN_DataSet(self, data, sparse = True, dense = True):
         """
@@ -315,13 +314,26 @@ class DNN_Model:
                 # RmseEvaluation(validation_data=(DNN_Valide_Data, valide_part_label), interval=1, \
                 #     batch_interval = self.batch_interval, scores = self.scores)
                 ]
+        datagen = preprocessing.image.ImageDataGenerator(
+                # featurewise_center=True,
+                # featurewise_std_normalization=True,
+                rotation_range=20,
+                width_shift_range=0.2,
+                height_shift_range=0.2,
+                horizontal_flip=True)
 
-        h = self.model.fit(DNN_Train_Data, train_part_label, batch_size=self.batch_size, epochs=self.epochs,
-                    shuffle=True, verbose=2,
-                    validation_data=(DNN_Valide_Data, valide_part_label)
-                    , callbacks=callbacks
-                    # , class_weight = {0: 1., 1: 5.}
-                    )
+        datagen.fit(DNN_Train_Data)
+
+        h = self.model.fit_generator(datagen.flow(DNN_Train_Data, train_part_label, batch_size=self.batch_size), 
+                  validation_data=(DNN_Valide_Data, valide_part_label), steps_per_epoch = DNN_Train_Data.shape[0]//self.batch_size,
+                  epochs=self.epochs, shuffle=True, verbose = 2, workers=1, use_multiprocessing=False, 
+                  callbacks=callbacks)
+        # h = self.model.fit(DNN_Train_Data, train_part_label, batch_size=self.batch_size, epochs=self.epochs,
+        #             shuffle=True, verbose=2,
+        #             validation_data=(DNN_Valide_Data, valide_part_label)
+        #             , callbacks=callbacks
+        #             # , class_weight = {0: 1., 1: 5.}
+        #             )
         self.scores.append(pd.DataFrame(h.history))
         # print(self.scores)
         # exit(0)
