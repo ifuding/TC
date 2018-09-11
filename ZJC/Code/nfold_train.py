@@ -65,7 +65,7 @@ def nfold_train(train_data, train_label, model_types = None,
                 if num_fold == 0:
                     print(model.model.summary())
                 model.train(train_part, train_part_label, valide_part, valide_part_label)
-                model = Model(inputs = model.model.inputs, outputs = model.model.get_layer(name = 'avg_pool').output)
+                # model = Model(inputs = model.model.inputs, outputs = model.model.get_layer(name = 'avg_pool').output)
                 onefold_models.append((model, model_type))
             elif model_type == 'v':
                 # with tf.device('/cpu:0'):

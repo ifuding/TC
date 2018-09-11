@@ -137,7 +137,8 @@ def sub(models, stacking_data = None, stacking_label = None, stacking_test_data 
     elif FLAGS.model_type == 'v':
         np.save(os.path.join(tmp_model_dir, "vae_data.npy"), stacking_data)
     else:
-        sub_re = pd.DataFrame(models_eval(models, test),index=tid)
+        flat_models = [(Model(inputs = m[0].model.inputs, outputs = m[0].model.get_layer(name = 'avg_pool').output), 'k') for m in models]
+        sub_re = pd.DataFrame(models_eval(flat_models, test),index=tid)
         time_label = time.strftime('_%Y_%m_%d_%H_%M_%S', time.gmtime())
         sub_name = tmp_model_dir + "sub" + time_label + ".csv"
         sub_re.to_csv(sub_name)
@@ -149,7 +150,7 @@ def sub(models, stacking_data = None, stacking_label = None, stacking_test_data 
                 model[0].save_model(model_name)
             elif (model[1] == 'k' or model[1] == 'r'):
                 model_name = tmp_model_dir + "model_" + str(i) + time_label + ".h5"
-                model[0].save(model_name)
+                model[0].model.save(model_name)
 
         # scores_text_frame = pd.DataFrame(scores_text, columns = ["score_text"])
         score_text_file = tmp_model_dir + "score_text" + time_label + ".csv"

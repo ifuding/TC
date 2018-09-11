@@ -104,6 +104,7 @@ class DNN_Model:
         self.blocks = [int(b.strip()) for b in flags.blocks.strip().split(',')]
         self.weight_decay = flags.weight_decay
         self.kernel_initializer = flags.kernel_initializer
+        self.aug_data = flags.aug_data
         self.model = self.small_densenet(blocks = self.blocks, weight_decay = self.weight_decay, kernel_initializer = self.kernel_initializer)
 
     def dense_block(self, x, blocks, name, weight_decay = 1e-4, kernel_initializer = 'he_normal'):
@@ -255,13 +256,13 @@ class DNN_Model:
         # x = Lambda(lambda x: x, name = 'densenet_features')(x)
         # x = self.full_connect_layer(x, self.hidden_dim, weight_decay = weight_decay, kernel_initializer = kernel_initializer)
         x = layers.Dense(self.cat_max, activation='softmax',
-            # kernel_initializer = kernel_initializer, 
+            kernel_initializer = kernel_initializer, 
             # kernel_regularizer = l2(weight_decay), 
             name='fc')(x)
         
         model = Model(img_input, x)
         # print (model.summary())
-        model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
+        model.compile(optimizer = 'rmsprop', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
         
         return model
 
@@ -314,26 +315,28 @@ class DNN_Model:
                 # RmseEvaluation(validation_data=(DNN_Valide_Data, valide_part_label), interval=1, \
                 #     batch_interval = self.batch_interval, scores = self.scores)
                 ]
-        datagen = preprocessing.image.ImageDataGenerator(
-                # featurewise_center=True,
-                # featurewise_std_normalization=True,
-                rotation_range=20,
-                width_shift_range=0.2,
-                height_shift_range=0.2,
-                horizontal_flip=True)
+        if self.aug_data:
+            datagen = preprocessing.image.ImageDataGenerator(
+                    # featurewise_center=True,
+                    # featurewise_std_normalization=True,
+                    rotation_range=45,
+                    shear_range = 0.2,
+                    zoom_range=0.2,
+                    horizontal_flip=True)
 
-        datagen.fit(DNN_Train_Data)
+            datagen.fit(DNN_Train_Data)
 
-        h = self.model.fit_generator(datagen.flow(DNN_Train_Data, train_part_label, batch_size=self.batch_size), 
-                  validation_data=(DNN_Valide_Data, valide_part_label), steps_per_epoch = DNN_Train_Data.shape[0]//self.batch_size,
-                  epochs=self.epochs, shuffle=True, verbose = 2, workers=1, use_multiprocessing=False, 
-                  callbacks=callbacks)
-        # h = self.model.fit(DNN_Train_Data, train_part_label, batch_size=self.batch_size, epochs=self.epochs,
-        #             shuffle=True, verbose=2,
-        #             validation_data=(DNN_Valide_Data, valide_part_label)
-        #             , callbacks=callbacks
-        #             # , class_weight = {0: 1., 1: 5.}
-        #             )
+            h = self.model.fit_generator(datagen.flow(DNN_Train_Data, train_part_label, batch_size=self.batch_size), 
+                    validation_data=(DNN_Valide_Data, valide_part_label), steps_per_epoch = DNN_Train_Data.shape[0]//self.batch_size,
+                    epochs=self.epochs, shuffle=True, verbose = 2, workers=1, use_multiprocessing=False, 
+                    callbacks=callbacks)
+        else:
+            h = self.model.fit(DNN_Train_Data, train_part_label, batch_size=self.batch_size, epochs=self.epochs,
+                        shuffle=True, verbose=2,
+                        validation_data=(DNN_Valide_Data, valide_part_label)
+                        , callbacks=callbacks
+                        # , class_weight = {0: 1., 1: 5.}
+                        )
         self.scores.append(pd.DataFrame(h.history))
         # print(self.scores)
         # exit(0)
