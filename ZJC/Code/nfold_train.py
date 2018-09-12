@@ -32,8 +32,8 @@ def nfold_train(train_data, train_label, model_types = None,
     kf = KFold(n_splits=fold, shuffle=True)
     # wv_model = gensim.models.Word2Vec.load("wv_model_norm.gensim")
     stacking = flags.stacking
-    stacking_data = None
-    stacking_label = None
+    stacking_data = pd.Series([np.zeros(1)] * train_data.shape[0])
+    stacking_label = pd.Series([np.zeros(1)] * train_data.shape[0])
     test_preds = None
     num_fold = 0
     models = []
@@ -53,7 +53,7 @@ def nfold_train(train_data, train_label, model_types = None,
             valide_part_label = valide_label
             if train_weight is not None:
                 train_part_weight, valide_part_weight = train_weight, valide_weight
-        print('fold: %d th train :-)' % (num_fold))
+        print('\nfold: %d th train :-)' % (num_fold))
         print('Train size: {} Valide size: {}'.format(train_part.shape[0], valide_part.shape[0]))
         print ('Train target nunique: ', np.unique(np.argwhere(train_part_label == 1)[:, 1]).shape[0], 
            'Validate target nuique: ', np.unique(np.argwhere(valide_part_label == 1)[:, 1]).shape[0])
@@ -65,7 +65,6 @@ def nfold_train(train_data, train_label, model_types = None,
                 if num_fold == 0:
                     print(model.model.summary())
                 model.train(train_part, train_part_label, valide_part, valide_part_label)
-                # model = Model(inputs = model.model.inputs, outputs = model.model.get_layer(name = 'avg_pool').output)
                 onefold_models.append((model, model_type))
             elif model_type == 'v':
                 # with tf.device('/cpu:0'):
@@ -88,29 +87,18 @@ def nfold_train(train_data, train_label, model_types = None,
                         fold, flags = flags)
                 onefold_models.append((model, 'l'))
                 # print (leak_train.head)
-        # if stacking:
-        #     valide_pred = [model_eval(model[0], model[1], valide_part) for model in onefold_models]
-        #     valide_pred = reduce((lambda x, y: np.c_[x, y]), valide_pred)
-        #     test_pred = [model_eval(model[0], model[1], test_data) for model in onefold_models]
-        #     test_pred = reduce((lambda x, y: np.c_[x, y]), test_pred)
-        #     if stacking_data is None:
-        #         stacking_data = valide_pred #np.c_[valide_part, valide_pred]
-        #         stacking_label = valide_part_label
-        #         test_preds = test_pred
-        #     else:
-        #         stacking_data = np.append(stacking_data, valide_pred, axis = 0) #np.append(stacking_data, np.c_[valide_part, valide_pred], axis = 0)
-        #         stacking_label = np.append(stacking_label, valide_part_label, axis = 0)
-        #         test_preds += test_pred
-        #     print('stacking_data shape: {0}'.format(stacking_data.shape))
-        #     print('stacking_label shape: {0}'.format(stacking_label.shape))
-        #     print('stacking test data shape: {0}'.format(test_preds.shape))
+
+            if stacking:
+                flat_model = Model(inputs = model.model.inputs, outputs = model.model.get_layer(name = 'avg_pool').output)
+                stacking_data[test_index] = list(flat_model.predict(valide_part))
+                stacking_label[test_index] = list(model.predict(valide_part))
         models.append(onefold_models[0])
         num_fold += 1
         if num_fold == flags.ensemble_nfold:
             break
     # if stacking:
     #     test_preds /= flags.ensemble_nfold
-        # test_data = np.c_[test_data, test_preds]
+    #     test_data = np.c_[test_data, test_preds]
     return models, stacking_data, stacking_label, test_preds
 
 

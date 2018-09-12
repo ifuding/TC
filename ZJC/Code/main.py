@@ -89,6 +89,9 @@ flags.DEFINE_string('blocks', "0", 'densenet blocks')
 flags.DEFINE_integer('patience', 3, 'patience')
 flags.DEFINE_float("weight_decay", 1e-4, "weight_decay")
 flags.DEFINE_string('kernel_initializer', "he_normal", 'kernel_initializer')
+flags.DEFINE_integer('init_filters', 3, 'init_filters')
+flags.DEFINE_integer('growth_rate', 3, 'growth_rate')
+flags.DEFINE_float("reduction", 0.5, "reduction")
 
 FLAGS = flags.FLAGS
 
@@ -103,9 +106,12 @@ def load_data(col):
     #     class_id_emb_attr = pickle.load(handle)
     with open(path + 'train_img.pickle', 'rb') as handle:
         train_data = pickle.load(handle)
+    # with open(path + 'test_data.pickle', 'rb') as handle:
+    #     test_data = pickle.load(handle)
     
     if FLAGS.debug:
         train_data = train_data[:500]
+        # test_data = test_data[:500]
 
     category = train_data['class_id'].unique()
     category_dict = dict((category[i], i) for i in range(category.shape[0]))
@@ -128,29 +134,35 @@ def load_data(col):
 def sub(models, stacking_data = None, stacking_label = None, stacking_test_data = None, test = None, \
         scores_text = None, tid = None, sub_re = None, col = None, leak_target = None, aug_data_target = None):
     tmp_model_dir = "./model_dir/"
+    time_label = time.strftime('_%Y_%m_%d_%H_%M_%S', time.gmtime())
     if not os.path.isdir(tmp_model_dir):
         os.makedirs(tmp_model_dir, exist_ok=True)
     if FLAGS.stacking:
-        np.save(os.path.join(tmp_model_dir, "stacking_train_data.npy"), stacking_data)
-        np.save(os.path.join(tmp_model_dir, "stacking_train_label.npy"), stacking_label)
-        np.save(os.path.join(tmp_model_dir, "stacking_test_data.npy"), stacking_test_data)
+        # np.save(os.path.join(tmp_model_dir, "stacking_train_data.npy"), stacking_data)
+        # np.save(os.path.join(tmp_model_dir, "stacking_train_label.npy"), stacking_label)
+        # np.save(os.path.join(tmp_model_dir, "stacking_test_data.npy"), stacking_test_data)
+        # stacking_data.to_csv(tmp_model_dir + '/stacking_train_data' + time_label + '.csv', index = False)
+        # stacking_label.to_csv(tmp_model_dir + '/stacking_train_label' + time_label + '.csv', index = False)
+        with open(tmp_model_dir + '/stacking_train_data' + time_label + '.pickle', 'wb+') as handle:
+            pickle.dump(stacking_data, handle)
+        with open(tmp_model_dir + '/stacking_train_label' + time_label + '.pickle', 'wb+') as handle:
+            pickle.dump(stacking_label, handle)
     elif FLAGS.model_type == 'v':
         np.save(os.path.join(tmp_model_dir, "vae_data.npy"), stacking_data)
     else:
         flat_models = [(Model(inputs = m[0].model.inputs, outputs = m[0].model.get_layer(name = 'avg_pool').output), 'k') for m in models]
         sub_re = pd.DataFrame(models_eval(flat_models, test),index=tid)
-        time_label = time.strftime('_%Y_%m_%d_%H_%M_%S', time.gmtime())
         sub_name = tmp_model_dir + "sub" + time_label + ".csv"
         sub_re.to_csv(sub_name)
 
-        # save model to file
-        for i, model in enumerate(models):
-            if (model[1] == 'l'):
-                model_name = tmp_model_dir + "model_" + str(i) + time_label + ".txt"
-                model[0].save_model(model_name)
-            elif (model[1] == 'k' or model[1] == 'r'):
-                model_name = tmp_model_dir + "model_" + str(i) + time_label + ".h5"
-                model[0].model.save(model_name)
+    # save model to file
+    for i, model in enumerate(models):
+        if (model[1] == 'l'):
+            model_name = tmp_model_dir + "model_" + str(i) + time_label + ".txt"
+            model[0].save_model(model_name)
+        elif (model[1] == 'k' or model[1] == 'r'):
+            model_name = tmp_model_dir + "model_" + str(i) + time_label + ".h5"
+            model[0].model.save(model_name)
 
         # scores_text_frame = pd.DataFrame(scores_text, columns = ["score_text"])
         score_text_file = tmp_model_dir + "score_text" + time_label + ".csv"

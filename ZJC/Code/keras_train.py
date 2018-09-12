@@ -105,9 +105,17 @@ class DNN_Model:
         self.weight_decay = flags.weight_decay
         self.kernel_initializer = flags.kernel_initializer
         self.aug_data = flags.aug_data
-        self.model = self.small_densenet(blocks = self.blocks, weight_decay = self.weight_decay, kernel_initializer = self.kernel_initializer)
+        self.model = self.small_densenet(blocks = self.blocks, 
+                weight_decay = self.weight_decay, 
+                kernel_initializer = self.kernel_initializer,
+                init_filters = flags.init_filters,
+                reduction = flags.reduction,
+                growth_rate = flags.growth_rate)
 
-    def dense_block(self, x, blocks, name, weight_decay = 1e-4, kernel_initializer = 'he_normal'):
+    def dense_block(self, x, blocks, name, 
+            weight_decay = 1e-4, 
+            kernel_initializer = 'he_normal',
+            growth_rate = None):
         """A dense block.
         # Arguments
             x: input tensor.
@@ -117,7 +125,7 @@ class DNN_Model:
             output tensor for the block.
         """
         for i in range(blocks):
-            x = self.conv_block(x, 32, name=name + '_block' + str(i + 1), 
+            x = self.conv_block(x, growth_rate, name=name + '_block' + str(i + 1), 
                 weight_decay = weight_decay,
                 kernel_initializer = kernel_initializer)
         return x
@@ -227,10 +235,23 @@ class DNN_Model:
         
         return model
 
-    def small_densenet(self, img_input_shape = (64, 64, 3), blocks = [6, 12, 24, 16], weight_decay = 1e-4, kernel_initializer = 'he_normal'):
+    def small_densenet(self, img_input_shape = (64, 64, 3), 
+        blocks = [6, 12, 24, 16], 
+        weight_decay = 1e-4, 
+        kernel_initializer = 'he_normal',
+        init_filters = None,
+        reduction = None,
+        growth_rate = None
+        ):
         img_input = Input(shape = (img_input_shape))
+
+        # x = layers.Conv2D(init_filters, 3, strides=1, use_bias=False, 
+        #     kernel_initializer = kernel_initializer, 
+        #     kernel_regularizer = l2(weight_decay),
+        #     name='conv1/conv')(img_input)
+
         x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)))(img_input)
-        x = layers.Conv2D(64, 7, strides=2, use_bias=False, 
+        x = layers.Conv2D(init_filters, 3, strides=1, use_bias=False, 
             kernel_initializer = kernel_initializer, 
             kernel_regularizer = l2(weight_decay),
             name='conv1/conv')(x)
@@ -238,16 +259,17 @@ class DNN_Model:
             axis=3, epsilon=1.001e-5, name='conv1/bn')(x)
         x = layers.Activation('relu', name='conv1/relu')(x)
         x = layers.ZeroPadding2D(padding=((1, 1), (1, 1)))(x)
-        x = layers.MaxPooling2D(3, strides=2, name='pool1')(x)
+        x = layers.AveragePooling2D(3, strides=2, name='pool1')(x)
         
-        x = self.dense_block(x, blocks[0], name='conv2', weight_decay = weight_decay, kernel_initializer = kernel_initializer)
-        x = self.transition_block(x, 0.5, name='pool2', weight_decay = weight_decay, kernel_initializer = kernel_initializer)
-        x = self.dense_block(x, blocks[1], name='conv3', weight_decay = weight_decay, kernel_initializer = kernel_initializer)
-        x = self.transition_block(x, 0.5, name='pool3', weight_decay = weight_decay, kernel_initializer = kernel_initializer)
-        x = self.dense_block(x, blocks[2], name='conv4', weight_decay = weight_decay, kernel_initializer = kernel_initializer)
-        x = self.transition_block(x, 0.5, name='pool4', weight_decay = weight_decay, kernel_initializer = kernel_initializer)
-        x = self.dense_block(x, blocks[3], name='conv5', weight_decay = weight_decay, kernel_initializer = kernel_initializer)
-        
+        for i, block in enumerate(blocks):
+            scope_num_str = str(i + 2)
+            x = self.dense_block(x, block, name='conv' + scope_num_str, 
+                                 growth_rate = growth_rate,
+                                 weight_decay = weight_decay, 
+                                 kernel_initializer = kernel_initializer)
+            if i != len(blocks) - 1:
+                x = self.transition_block(x, reduction, name='pool' + scope_num_str, 
+                                          weight_decay = weight_decay, kernel_initializer = kernel_initializer)
         x = layers.BatchNormalization(
             axis=3, epsilon=1.001e-5, name='bn')(x)
         x = layers.Activation('relu', name='relu')(x)
@@ -262,7 +284,7 @@ class DNN_Model:
         
         model = Model(img_input, x)
         # print (model.summary())
-        model.compile(optimizer = 'rmsprop', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
+        model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
         
         return model
 
