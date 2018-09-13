@@ -26,6 +26,7 @@ from tensorflow.python.keras.applications import vgg16
 # from CNN_Keras import get_word2vec_embedding
 # import lightgbm as lgb
 import pickle
+from sklearn.cross_validation import train_test_split
 # from RankGauss import rank_INT, rank_INT_DF
 # import matplotlib
 # matplotlib.use('Agg')
@@ -83,7 +84,7 @@ flags.DEFINE_bool("vae_mse", True, "vae_mse")
 flags.DEFINE_integer('vae_intermediate_dim', 100, 'vae_intermediate_dim')
 flags.DEFINE_integer('vae_latent_dim', 100, 'vae_latent_dim')
 flags.DEFINE_bool("load_from_vae", False, "load_from_vae")
-flags.DEFINE_bool("predict_feature", False, "predict_feature")
+flags.DEFINE_bool("predict", False, "predict")
 flags.DEFINE_bool("aug_data", False, "aug_data")
 flags.DEFINE_string('blocks', "0", 'densenet blocks')
 flags.DEFINE_integer('patience', 3, 'patience')
@@ -92,10 +93,13 @@ flags.DEFINE_string('kernel_initializer', "he_normal", 'kernel_initializer')
 flags.DEFINE_integer('init_filters', 3, 'init_filters')
 flags.DEFINE_integer('growth_rate', 3, 'growth_rate')
 flags.DEFINE_float("reduction", 0.5, "reduction")
+flags.DEFINE_float("lr", 0, "lr")
+flags.DEFINE_float("unseen_class_ratio", 0.1, "unseen_class_ratio")
 
 FLAGS = flags.FLAGS
 
 path = FLAGS.input_training_data_path
+model_path = FLAGS.input_previous_model_path
 
 def extract_array_from_series(s):
     return np.asarray(list(s))
@@ -108,23 +112,51 @@ def load_data(col):
         train_data = pickle.load(handle)
     # with open(path + 'test_data.pickle', 'rb') as handle:
     #     test_data = pickle.load(handle)
-    
+
     if FLAGS.debug:
         train_data = train_data[:500]
+
+    if FLAGS.predict:
+        train_part_img_id = pd.read_csv(model_path + '/train_part_img_id_0.csv', header = None)
+        validate_part_img_id = pd.read_csv(model_path + '/validate_part_img_id_0.csv', header = None)
+        train_part_img_id = train_part_img_id[0].values
+        validate_part_img_id = validate_part_img_id[0].values
+
+        train_part_df = train_data[train_data['image_id'].isin(train_part_img_id)]
+        validate_part_df = train_data[train_data['image_id'].isin(validate_part_img_id)]
+
+        seen_class = train_part_df.append(validate_part_df).class_id.unique()
+
+        img_model = keras_train.DNN_Model(cat_max = 171, #seen_class.shape[0], 
+                            flags = FLAGS).model
+        img_model.load_weights(model_path + '/model_0_2018_09_13_08_23_48.h5')
+        img_model_flat = Model(inputs = img_model.input, outputs = img_model.get_layer(name = 'avg_pool').output)
+
+        train_img = extract_array_from_series(train_data['img'])
+        train_img = vgg16.preprocess_input(train_img)
+        train_data['target'] = list(img_model_flat.predict(train_img, verbose = 2))
+        train_data['preds'] = list(img_model.predict(train_img, verbose = 2))
+
         # test_data = test_data[:500]
+        train_label, test_data, test_id, valide_data, valide_label = tuple([None] * 5)
+    else:
+        classes = train_data['class_id'].unique()
+        seen_class, unseen_class, _, _ = train_test_split(classes, classes, test_size=FLAGS.unseen_class_ratio)
+        print ('seen class and unseen class number: ', seen_class.shape[0], unseen_class.shape[0])
+        train_data = train_data[train_data['class_id'].isin(seen_class)]
 
-    category = train_data['class_id'].unique()
-    category_dict = dict((category[i], i) for i in range(category.shape[0]))
+        category = seen_class #train_data['class_id'].unique()
+        category_dict = dict((category[i], i) for i in range(category.shape[0]))
 
-    train_img = extract_array_from_series(train_data['img'])
-    train_img = vgg16.preprocess_input(train_img)
-    OneHotEncoder = preprocessing.OneHotEncoder()
-    train_label = train_data['class_id'].apply(lambda id: category_dict[id]).values
-    train_label = OneHotEncoder.fit_transform(np.reshape(train_label, (-1, 1))).toarray()
+        # train_img = extract_array_from_series(train_data['img'])
+        # train_img = vgg16.preprocess_input(train_img)
+        OneHotEncoder = preprocessing.OneHotEncoder()
+        train_label = train_data['class_id'].apply(lambda id: category_dict[id]).values
+        train_label = OneHotEncoder.fit_transform(np.reshape(train_label, (-1, 1))).toarray()
 
-    test_id = train_data['image_id']
-    train_data = train_img
-    test_data = train_data
+        test_id = train_data['image_id']
+        # train_data = train_img
+        test_data = train_data
 
     valide_data = None
     valide_label = None
@@ -132,9 +164,11 @@ def load_data(col):
 
 
 def sub(models, stacking_data = None, stacking_label = None, stacking_test_data = None, test = None, \
-        scores_text = None, tid = None, sub_re = None, col = None, leak_target = None, aug_data_target = None):
+        scores_text = None, tid = None, sub_re = None, col = None, leak_target = None, aug_data_target = None, \
+        train_part_img_id = None, validate_part_img_id = None):
     tmp_model_dir = "./model_dir/"
     time_label = time.strftime('_%Y_%m_%d_%H_%M_%S', time.gmtime())
+    # tmp_model_dir = "./model_dir/" + time_label
     if not os.path.isdir(tmp_model_dir):
         os.makedirs(tmp_model_dir, exist_ok=True)
     if FLAGS.stacking:
@@ -150,29 +184,35 @@ def sub(models, stacking_data = None, stacking_label = None, stacking_test_data 
     elif FLAGS.model_type == 'v':
         np.save(os.path.join(tmp_model_dir, "vae_data.npy"), stacking_data)
     else:
-        flat_models = [(Model(inputs = m[0].model.inputs, outputs = m[0].model.get_layer(name = 'avg_pool').output), 'k') for m in models]
-        sub_re = pd.DataFrame(models_eval(flat_models, test),index=tid)
-        sub_name = tmp_model_dir + "sub" + time_label + ".csv"
-        sub_re.to_csv(sub_name)
+        pass
+        # flat_models = [(Model(inputs = m[0].model.inputs, outputs = m[0].model.get_layer(name = 'avg_pool').output), 'k') for m in models]
+        # sub_re = pd.DataFrame(models_eval(flat_models, test),index=tid)
+        # sub_name = tmp_model_dir + "sub" + time_label + ".csv"
+        # sub_re.to_csv(sub_name)
+    if FLAGS.predict:
+        with open(tmp_model_dir + '/train_data' + time_label + '.pickle', 'wb+') as handle:
+            pickle.dump(stacking_data, handle)
+    else:
+        # save model to file
+        for i, model in enumerate(models):
+            if (model[1] == 'l'):
+                model_name = tmp_model_dir + "model_" + str(i) + time_label + ".txt"
+                model[0].save_model(model_name)
+            elif (model[1] == 'k' or model[1] == 'r'):
+                model_name = tmp_model_dir + "model_" + str(i) + time_label + ".h5"
+                model[0].model.save(model_name)
+                train_part_img_id[i].to_csv(tmp_model_dir + 'train_part_img_id_' + str(i) + '.csv', index = False)
+                validate_part_img_id[i].to_csv(tmp_model_dir + 'validate_part_img_id_' + str(i) + '.csv', index = False)
 
-    # save model to file
-    for i, model in enumerate(models):
-        if (model[1] == 'l'):
-            model_name = tmp_model_dir + "model_" + str(i) + time_label + ".txt"
-            model[0].save_model(model_name)
-        elif (model[1] == 'k' or model[1] == 'r'):
-            model_name = tmp_model_dir + "model_" + str(i) + time_label + ".h5"
-            model[0].model.save(model_name)
-
-        # scores_text_frame = pd.DataFrame(scores_text, columns = ["score_text"])
-        score_text_file = tmp_model_dir + "score_text" + time_label + ".csv"
-        scores_text_df = pd.concat(scores_text)
-        scores_text_df.groupby(scores_text_df.index).agg(['max', 'min', 'mean', 'median', 'std']).T.to_csv(score_text_file, index=True)
-        # scores = scores_text_frame["score_text"]
-        # for i in range(FLAGS.epochs):
-        #     scores_epoch = scores.loc[scores.str.startswith('epoch:{0}'.format(i + 1))].map(lambda s: float(s.split()[1]))
-        #     print ("Epoch{0} mean:{1} std:{2} min:{3} max:{4} median:{5}".format(i + 1, \
-        #         scores_epoch.mean(), scores_epoch.std(), scores_epoch.min(), scores_epoch.max(), scores_epoch.median()))
+            # scores_text_frame = pd.DataFrame(scores_text, columns = ["score_text"])
+            score_text_file = tmp_model_dir + "score_text" + time_label + ".csv"
+            scores_text_df = pd.concat(scores_text)
+            scores_text_df.groupby(scores_text_df.index).agg(['max', 'min', 'mean', 'median', 'std']).T.to_csv(score_text_file, index=True)
+            # scores = scores_text_frame["score_text"]
+            # for i in range(FLAGS.epochs):
+            #     scores_epoch = scores.loc[scores.str.startswith('epoch:{0}'.format(i + 1))].map(lambda s: float(s.split()[1]))
+            #     print ("Epoch{0} mean:{1} std:{2} min:{3} max:{4} median:{5}".format(i + 1, \
+            #         scores_epoch.mean(), scores_epoch.std(), scores_epoch.min(), scores_epoch.max(), scores_epoch.median()))
 
     if not os.path.isdir(FLAGS.output_model_path):
         os.makedirs(FLAGS.output_model_path, exist_ok=True)
@@ -186,11 +226,16 @@ def sub(models, stacking_data = None, stacking_label = None, stacking_test_data 
 if __name__ == "__main__":
     def train_sub(col):
         scores_text = []
-
+        models = []
         train_data, train_label, test_data, tid, valide_data, valide_label = load_data(col)
-        models, stacking_data, stacking_label, stacking_test_data = nfold_train(train_data, train_label, flags = FLAGS, \
+        if FLAGS.predict:
+            stacking_data = train_data
+            stacking_label, stacking_test_data, train_part_img_id, validate_part_img_id = tuple([None] * 4)
+        else:
+            models, stacking_data, stacking_label, stacking_test_data, train_part_img_id, validate_part_img_id = nfold_train(train_data, train_label, flags = FLAGS, \
                 model_types = list(FLAGS.model_type), scores = scores_text, test_data = test_data, \
                 valide_data = valide_data, valide_label = valide_label, cat_max = None, emb_weight = None)
         sub(models, stacking_data = stacking_data, stacking_label = stacking_label, stacking_test_data = stacking_test_data, \
-            test = test_data, scores_text = scores_text, tid = tid, col = col)
+            test = test_data, scores_text = scores_text, tid = tid, col = col, train_part_img_id = train_part_img_id, \
+            validate_part_img_id = validate_part_img_id)
     train_sub(None)

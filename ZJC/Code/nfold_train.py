@@ -12,9 +12,13 @@ from tensorflow.python.keras.models import Model
 # from xgb import xgb_train
 import pandas as pd
 from sklearn import metrics
+from tensorflow.python.keras.applications import vgg16
 
 # RNN_PARAMS
 RCNN_HIDDEN_UNIT = [128, 64]
+
+def extract_array_from_series(s):
+    return np.asarray(list(s))
 
 def nfold_train(train_data, train_label, model_types = None,
             stacking = False, valide_data = None, valide_label = None,
@@ -38,25 +42,27 @@ def nfold_train(train_data, train_label, model_types = None,
     num_fold = 0
     models = []
     losses = []
+    train_part_img_id = []
+    validate_part_img_id = []
     for train_index, test_index in kf.split(train_data):
         # print(test_index[:100])
         # exit(0)
         if valide_label is None:
-            train_part = train_data[train_index]
+            train_img = extract_array_from_series(train_data['img'])
+            train_img = vgg16.preprocess_input(train_img)
+
+            train_part = train_img[train_index]
             train_part_label = train_label[train_index]
-            valide_part = train_data[test_index]
-            valide_part_label = train_label[test_index]
-        else:
-            train_part = train_data
-            train_part_label = train_label
-            valide_part = valide_data
-            valide_part_label = valide_label
-            if train_weight is not None:
-                train_part_weight, valide_part_weight = train_weight, valide_weight
+            validate_part = train_img[test_index]
+            validate_part_label = train_label[test_index]
+
+            train_part_img_id.append(train_data.iloc[train_index].image_id)
+            validate_part_img_id.append(train_data.iloc[test_index].image_id)
+
         print('\nfold: %d th train :-)' % (num_fold))
-        print('Train size: {} Valide size: {}'.format(train_part.shape[0], valide_part.shape[0]))
+        print('Train size: {} Valide size: {}'.format(train_part_label.shape[0], validate_part_label.shape[0]))
         print ('Train target nunique: ', np.unique(np.argwhere(train_part_label == 1)[:, 1]).shape[0], 
-           'Validate target nuique: ', np.unique(np.argwhere(valide_part_label == 1)[:, 1]).shape[0])
+           'Validate target nuique: ', np.unique(np.argwhere(validate_part_label == 1)[:, 1]).shape[0])
         onefold_models = []
         for model_type in model_types:
             if model_type == 'k' or model_type == 'r':
@@ -64,34 +70,13 @@ def nfold_train(train_data, train_label, model_types = None,
                 model = DNN_Model(scores = scores, cat_max = train_part_label.shape[1], flags = flags, emb_weight = emb_weight, model_type = model_type)
                 if num_fold == 0:
                     print(model.model.summary())
-                model.train(train_part, train_part_label, valide_part, valide_part_label)
+                model.train(train_part, train_part_label, validate_part, validate_part_label)
                 onefold_models.append((model, model_type))
-            elif model_type == 'v':
-                # with tf.device('/cpu:0'):
-                model = VAE_Model(flags = flags)
-                if num_fold == 0:
-                    print(model.model.summary())
-                model.train(train_part, train_part_label, valide_part, valide_part_label)
-                model = Model(inputs = model.model.inputs, outputs = model.model.get_layer(name = 'z').output)
-                # if stacking:
-                #     model = Model(inputs = model.model.inputs, outputs = model.model.get_layer(name = 'merge_sparse_emb').output)
-                onefold_models.append((model, 'v'))
-                stacking_data = model_eval(model, 'v', train_data) # for model in onefold_models]
-                # stacking_data = reduce((lambda x, y: np.c_[x, y]), stacking_data)
-                print('stacking_data shape: {0}'.format(stacking_data.shape))
-            elif model_type == 'x':
-                model = xgb_train(train_part, train_part_label, valide_part, valide_part_label, num_fold)
-                onefold_models.append((model, 'x'))
-            elif model_type == 'l':
-                model = lgbm_train(train_part, train_part_label, valide_part, valide_part_label, num_fold,
-                        fold, flags = flags)
-                onefold_models.append((model, 'l'))
-                # print (leak_train.head)
 
             if stacking:
                 flat_model = Model(inputs = model.model.inputs, outputs = model.model.get_layer(name = 'avg_pool').output)
-                stacking_data[test_index] = list(flat_model.predict(valide_part))
-                stacking_label[test_index] = list(model.predict(valide_part))
+                stacking_data[test_index] = list(flat_model.predict(validate_part))
+                stacking_label[test_index] = list(model.predict(validate_part))
         models.append(onefold_models[0])
         num_fold += 1
         if num_fold == flags.ensemble_nfold:
@@ -99,7 +84,7 @@ def nfold_train(train_data, train_label, model_types = None,
     # if stacking:
     #     test_preds /= flags.ensemble_nfold
     #     test_data = np.c_[test_data, test_preds]
-    return models, stacking_data, stacking_label, test_preds
+    return models, stacking_data, stacking_label, test_preds, train_part_img_id, validate_part_img_id
 
 
 def model_eval(model, model_type, data_frame):

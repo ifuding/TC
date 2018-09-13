@@ -73,7 +73,7 @@ class RmseEvaluation(Callback):
 class DNN_Model:
     """
     """
-    def __init__(self, scores, cat_max, flags, emb_weight, model_type):
+    def __init__(self, scores = None, cat_max = None, flags = None, emb_weight = None, model_type = None):
         self.hidden_dim = [int(hn.strip()) for hn in flags.full_connect_hn.strip().split(',')]
         self.batch_size = flags.batch_size
         self.epochs = flags.epochs
@@ -105,6 +105,7 @@ class DNN_Model:
         self.weight_decay = flags.weight_decay
         self.kernel_initializer = flags.kernel_initializer
         self.aug_data = flags.aug_data
+        self.lr = flags.lr
         self.model = self.small_densenet(blocks = self.blocks, 
                 weight_decay = self.weight_decay, 
                 kernel_initializer = self.kernel_initializer,
@@ -284,7 +285,7 @@ class DNN_Model:
         
         model = Model(img_input, x)
         # print (model.summary())
-        model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
+        model.compile(optimizer = Adam(lr=self.lr), loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
         
         return model
 
