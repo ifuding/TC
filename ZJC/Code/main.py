@@ -95,6 +95,7 @@ flags.DEFINE_integer('growth_rate', 3, 'growth_rate')
 flags.DEFINE_float("reduction", 0.5, "reduction")
 flags.DEFINE_float("lr", 0, "lr")
 flags.DEFINE_float("unseen_class_ratio", 0.1, "unseen_class_ratio")
+flags.DEFINE_bool("combine_set_ab", False, "combine_set_ab")
 
 FLAGS = flags.FLAGS
 
@@ -106,15 +107,25 @@ def extract_array_from_series(s):
 
 def load_data(col):
     print("\nData Load Stage")
-    # with open(path + 'class_id_emb_attr.pickle', 'rb') as handle:
+    # with open(path + 'setB_class_id_emb_attr.pickle', 'rb') as handle:
     #     class_id_emb_attr = pickle.load(handle)
-    with open(path + 'train_img.pickle', 'rb') as handle:
-        train_data = pickle.load(handle)
-    # with open(path + 'test_data.pickle', 'rb') as handle:
-    #     test_data = pickle.load(handle)
+    with open(path + '/setA_train_data.pickle', 'rb') as handle:
+        setA_train_data = pickle.load(handle)
+    with open(path + '/setB_train_data.pickle', 'rb') as handle:
+        setB_train_data = pickle.load(handle)
+    with open(path + 'setB_test_data.pickle', 'rb') as handle:
+        test_data = pickle.load(handle)
+    
+    if FLAGS.combine_set_ab:
+        train_data = setA_train_data.append(setB_train_data)
+    else:
+        train_data = setB_train_data
+    del setA_train_data, setB_train_data
+    train_data.drop(columns = ['class_name', 'emb', 'attr'], inplace = True)
 
     if FLAGS.debug:
         train_data = train_data[:500]
+        test_data = test_data[:500]
 
     if FLAGS.predict:
         train_part_img_id = pd.read_csv(model_path + '/train_part_img_id_0.csv', header = None)
@@ -140,12 +151,12 @@ def load_data(col):
         # test_data = test_data[:500]
         train_label, test_data, test_id, valide_data, valide_label = tuple([None] * 5)
     else:
-        classes = train_data['class_id'].unique()
-        seen_class, unseen_class, _, _ = train_test_split(classes, classes, test_size=FLAGS.unseen_class_ratio)
-        print ('seen class and unseen class number: ', seen_class.shape[0], unseen_class.shape[0])
-        train_data = train_data[train_data['class_id'].isin(seen_class)]
+        # classes = train_data['class_id'].unique()
+        # seen_class, unseen_class, _, _ = train_test_split(classes, classes, test_size=FLAGS.unseen_class_ratio)
+        # print ('seen class and unseen class number: ', seen_class.shape[0], unseen_class.shape[0])
+        # train_data = train_data[train_data['class_id'].isin(seen_class)]
 
-        category = seen_class #train_data['class_id'].unique()
+        category = train_data['class_id'].unique()
         category_dict = dict((category[i], i) for i in range(category.shape[0]))
 
         # train_img = extract_array_from_series(train_data['img'])
@@ -154,18 +165,18 @@ def load_data(col):
         train_label = train_data['class_id'].apply(lambda id: category_dict[id]).values
         train_label = OneHotEncoder.fit_transform(np.reshape(train_label, (-1, 1))).toarray()
 
-        test_id = train_data['image_id']
+        test_id = train_data['img_id']
         # train_data = train_img
-        test_data = train_data
+        # test_data = setB_test_data
 
     valide_data = None
     valide_label = None
     return train_data, train_label, test_data, test_id, valide_data, valide_label
 
 
-def sub(models, stacking_data = None, stacking_label = None, stacking_test_data = None, test = None, \
+def sub(models, stacking_data = None, stacking_label = None, stacking_test_data = None, test_data = None, \
         scores_text = None, tid = None, sub_re = None, col = None, leak_target = None, aug_data_target = None, \
-        train_part_img_id = None, validate_part_img_id = None):
+        train_part_img_id = None, validate_part_img_id = None, train_data = None):
     tmp_model_dir = "./model_dir/"
     time_label = time.strftime('_%Y_%m_%d_%H_%M_%S', time.gmtime())
     # tmp_model_dir = "./model_dir/" + time_label
@@ -184,11 +195,14 @@ def sub(models, stacking_data = None, stacking_label = None, stacking_test_data 
     elif FLAGS.model_type == 'v':
         np.save(os.path.join(tmp_model_dir, "vae_data.npy"), stacking_data)
     else:
-        pass
-        # flat_models = [(Model(inputs = m[0].model.inputs, outputs = m[0].model.get_layer(name = 'avg_pool').output), 'k') for m in models]
-        # sub_re = pd.DataFrame(models_eval(flat_models, test),index=tid)
-        # sub_name = tmp_model_dir + "sub" + time_label + ".csv"
-        # sub_re.to_csv(sub_name)
+        # pass
+        flat_models = [(Model(inputs = m[0].model.inputs, outputs = m[0].model.get_layer(name = 'avg_pool').output), 'k') for m in models]
+        flat_train_re = models_eval(flat_models, extract_array_from_series(train_data['img']))
+        flat_test_re = models_eval(flat_models, extract_array_from_series(test_data['img']))
+        with open(tmp_model_dir + '/flat_train_re' + time_label + '.pickle', 'wb+') as handle:
+            pickle.dump(flat_train_re, handle)
+        with open(tmp_model_dir + '/flat_test_re' + time_label + '.pickle', 'wb+') as handle:
+            pickle.dump(flat_test_re, handle)
     if FLAGS.predict:
         with open(tmp_model_dir + '/train_data' + time_label + '.pickle', 'wb+') as handle:
             pickle.dump(stacking_data, handle)
@@ -236,6 +250,6 @@ if __name__ == "__main__":
                 model_types = list(FLAGS.model_type), scores = scores_text, test_data = test_data, \
                 valide_data = valide_data, valide_label = valide_label, cat_max = None, emb_weight = None)
         sub(models, stacking_data = stacking_data, stacking_label = stacking_label, stacking_test_data = stacking_test_data, \
-            test = test_data, scores_text = scores_text, tid = tid, col = col, train_part_img_id = train_part_img_id, \
-            validate_part_img_id = validate_part_img_id)
+            test_data = test_data, scores_text = scores_text, tid = tid, col = col, train_part_img_id = train_part_img_id, \
+            validate_part_img_id = validate_part_img_id, train_data = train_data)
     train_sub(None)

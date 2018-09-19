@@ -183,59 +183,6 @@ class DNN_Model:
         x = layers.Concatenate(axis=bn_axis, name=name + '_concat')([x, x1])
         return x
 
-    def small_vgg(self, img_input_shape = (64, 64, 3)):
-        # Block 1
-        img_input = Input(shape = (img_input_shape))
-        x = layers.Conv2D(32, (3, 3),
-                        activation='relu',
-                        padding='same',
-                        name='block1_conv1')(img_input)
-        x = layers.Conv2D(32, (3, 3),
-                        activation='relu',
-                        padding='same',
-                        name='block1_conv2')(x)
-        x = layers.MaxPooling2D((2, 2), strides=(2, 2), name='block1_pool')(x)
-
-        # Block 2
-        x = layers.Conv2D(64, (3, 3),
-                        activation='relu',
-                        padding='same',
-                        name='block2_conv1')(x)
-        x = layers.Conv2D(64, (3, 3),
-                        activation='relu',
-                        padding='same',
-                        name='block2_conv2')(x)
-        x = layers.MaxPooling2D((2, 2), strides=(2, 2), name='block2_pool')(x)
-        
-        # Block 3
-        x = layers.Conv2D(128, (3, 3),
-                        activation='relu',
-                        padding='same',
-                        name='block3_conv1')(x)
-        x = layers.Conv2D(128, (3, 3),
-                        activation='relu',
-                        padding='same',
-                        name='block3_conv2')(x)
-        x = layers.Conv2D(128, (3, 3),
-                        activation='relu',
-                        padding='same',
-                        name='block3_conv3')(x)
-        x = layers.MaxPooling2D((2, 2), strides=(2, 2), name='block3_pool')(x)
-        
-   
-        
-        # Classification block
-        x = layers.Flatten(name='flatten')(x)
-        x = layers.Dense(1024, activation='relu', name='fc1')(x)
-        x = layers.Dense(512, activation='relu', name='fc2')(x)
-        x = layers.Dense(self.cat_max, activation='softmax', name='predictions')(x)
-        
-        model = Model(img_input, x)
-        # print (model.summary())
-        model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
-        
-        return model
-
     def small_densenet(self, img_input_shape = (64, 64, 3), 
         blocks = [6, 12, 24, 16], 
         weight_decay = 1e-4, 
@@ -286,6 +233,59 @@ class DNN_Model:
         model = Model(img_input, x)
         # print (model.summary())
         model.compile(optimizer = Adam(lr=self.lr), loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
+        
+        return model
+
+    def small_vgg(self, img_input_shape = (64, 64, 3)):
+        # Block 1
+        img_input = Input(shape = (img_input_shape))
+        x = layers.Conv2D(32, (3, 3),
+                        activation='relu',
+                        padding='same',
+                        name='block1_conv1')(img_input)
+        x = layers.Conv2D(32, (3, 3),
+                        activation='relu',
+                        padding='same',
+                        name='block1_conv2')(x)
+        x = layers.MaxPooling2D((2, 2), strides=(2, 2), name='block1_pool')(x)
+
+        # Block 2
+        x = layers.Conv2D(64, (3, 3),
+                        activation='relu',
+                        padding='same',
+                        name='block2_conv1')(x)
+        x = layers.Conv2D(64, (3, 3),
+                        activation='relu',
+                        padding='same',
+                        name='block2_conv2')(x)
+        x = layers.MaxPooling2D((2, 2), strides=(2, 2), name='block2_pool')(x)
+        
+        # Block 3
+        x = layers.Conv2D(128, (3, 3),
+                        activation='relu',
+                        padding='same',
+                        name='block3_conv1')(x)
+        x = layers.Conv2D(128, (3, 3),
+                        activation='relu',
+                        padding='same',
+                        name='block3_conv2')(x)
+        x = layers.Conv2D(128, (3, 3),
+                        activation='relu',
+                        padding='same',
+                        name='block3_conv3')(x)
+        x = layers.MaxPooling2D((2, 2), strides=(2, 2), name='block3_pool')(x)
+        
+   
+        
+        # Classification block
+        x = layers.Flatten(name='flatten')(x)
+        x = layers.Dense(1024, activation='relu', name='fc1')(x)
+        x = layers.Dense(512, activation='relu', name='fc2')(x)
+        x = layers.Dense(self.cat_max, activation='softmax', name='predictions')(x)
+        
+        model = Model(img_input, x)
+        # print (model.summary())
+        model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['categorical_accuracy'])
         
         return model
 

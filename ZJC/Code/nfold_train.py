@@ -56,8 +56,8 @@ def nfold_train(train_data, train_label, model_types = None,
             validate_part = train_img[test_index]
             validate_part_label = train_label[test_index]
 
-            train_part_img_id.append(train_data.iloc[train_index].image_id)
-            validate_part_img_id.append(train_data.iloc[test_index].image_id)
+            train_part_img_id.append(train_data.iloc[train_index].img_id)
+            validate_part_img_id.append(train_data.iloc[test_index].img_id)
 
         print('\nfold: %d th train :-)' % (num_fold))
         print('Train size: {} Valide size: {}'.format(train_part_label.shape[0], validate_part_label.shape[0]))
