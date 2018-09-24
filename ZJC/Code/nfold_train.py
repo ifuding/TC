@@ -20,6 +20,9 @@ RCNN_HIDDEN_UNIT = [128, 64]
 def extract_array_from_series(s):
     return np.asarray(list(s))
 
+def preprocess_img(img_series):
+    return vgg16.preprocess_input(extract_array_from_series(img_series))
+
 def nfold_train(train_data, train_label, model_types = None,
             stacking = False, valide_data = None, valide_label = None,
             test_data = None, train_weight = None, valide_weight = None,
@@ -33,7 +36,7 @@ def nfold_train(train_data, train_label, model_types = None,
     print(train_label.shape)
 
     fold = flags.nfold
-    kf = KFold(n_splits=fold, shuffle=True)
+    kf = KFold(n_splits=fold, shuffle=True, random_state = 100)
     # wv_model = gensim.models.Word2Vec.load("wv_model_norm.gensim")
     stacking = flags.stacking
     stacking_data = pd.Series([np.zeros(1)] * train_data.shape[0])
@@ -48,8 +51,7 @@ def nfold_train(train_data, train_label, model_types = None,
         # print(test_index[:100])
         # exit(0)
         if valide_label is None:
-            train_img = extract_array_from_series(train_data['img'])
-            train_img = vgg16.preprocess_input(train_img)
+            train_img = preprocess_img(train_data['img'])
 
             train_part = train_img[train_index]
             train_part_label = train_label[train_index]

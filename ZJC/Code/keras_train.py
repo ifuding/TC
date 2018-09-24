@@ -106,12 +106,14 @@ class DNN_Model:
         self.kernel_initializer = flags.kernel_initializer
         self.aug_data = flags.aug_data
         self.lr = flags.lr
+        self.verbose = flags.train_verbose
         self.model = self.small_densenet(blocks = self.blocks, 
                 weight_decay = self.weight_decay, 
                 kernel_initializer = self.kernel_initializer,
                 init_filters = flags.init_filters,
                 reduction = flags.reduction,
-                growth_rate = flags.growth_rate)
+                growth_rate = flags.growth_rate,
+                init_stride = flags.init_stride)
 
     def dense_block(self, x, blocks, name, 
             weight_decay = 1e-4, 
@@ -189,7 +191,8 @@ class DNN_Model:
         kernel_initializer = 'he_normal',
         init_filters = None,
         reduction = None,
-        growth_rate = None
+        growth_rate = None,
+        init_stride = None
         ):
         img_input = Input(shape = (img_input_shape))
 
@@ -199,7 +202,7 @@ class DNN_Model:
         #     name='conv1/conv')(img_input)
 
         x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)))(img_input)
-        x = layers.Conv2D(init_filters, 3, strides=1, use_bias=False, 
+        x = layers.Conv2D(init_filters, 3, strides=init_stride, use_bias=False, 
             kernel_initializer = kernel_initializer, 
             kernel_regularizer = l2(weight_decay),
             name='conv1/conv')(x)
@@ -351,11 +354,11 @@ class DNN_Model:
 
             h = self.model.fit_generator(datagen.flow(DNN_Train_Data, train_part_label, batch_size=self.batch_size), 
                     validation_data=(DNN_Valide_Data, valide_part_label), steps_per_epoch = DNN_Train_Data.shape[0]//self.batch_size,
-                    epochs=self.epochs, shuffle=True, verbose = 2, workers=1, use_multiprocessing=False, 
+                    epochs=self.epochs, shuffle=True, verbose = self.verbose, workers=1, use_multiprocessing=False, 
                     callbacks=callbacks)
         else:
             h = self.model.fit(DNN_Train_Data, train_part_label, batch_size=self.batch_size, epochs=self.epochs,
-                        shuffle=True, verbose=2,
+                        shuffle=True, verbose=self.verbose,
                         validation_data=(DNN_Valide_Data, valide_part_label)
                         , callbacks=callbacks
                         # , class_weight = {0: 1., 1: 5.}

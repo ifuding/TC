@@ -13,7 +13,7 @@ import gc
 from feature_engineer import gen_features
 from feature_engineer import timer
 import keras_train
-from nfold_train import nfold_train, models_eval
+from nfold_train import nfold_train, models_eval, preprocess_img
 import tensorflow as tf
 import os
 import shutil
@@ -27,6 +27,7 @@ from tensorflow.python.keras.applications import vgg16
 # import lightgbm as lgb
 import pickle
 from sklearn.cross_validation import train_test_split
+import glob
 # from RankGauss import rank_INT, rank_INT_DF
 # import matplotlib
 # matplotlib.use('Agg')
@@ -95,15 +96,14 @@ flags.DEFINE_integer('growth_rate', 3, 'growth_rate')
 flags.DEFINE_float("reduction", 0.5, "reduction")
 flags.DEFINE_float("lr", 0, "lr")
 flags.DEFINE_float("unseen_class_ratio", 0.1, "unseen_class_ratio")
-flags.DEFINE_bool("combine_set_ab", False, "combine_set_ab")
+flags.DEFINE_string("combine_set_ab", "a", "combine_set_ab")
+flags.DEFINE_integer('init_stride', 13, 'init_stride')
+flags.DEFINE_integer('train_verbose', 2, 'train_verbose')
 
 FLAGS = flags.FLAGS
 
 path = FLAGS.input_training_data_path
 model_path = FLAGS.input_previous_model_path
-
-def extract_array_from_series(s):
-    return np.asarray(list(s))
 
 def load_data(col):
     print("\nData Load Stage")
@@ -115,41 +115,52 @@ def load_data(col):
         setB_train_data = pickle.load(handle)
     with open(path + 'setB_test_data.pickle', 'rb') as handle:
         test_data = pickle.load(handle)
-    
-    if FLAGS.combine_set_ab:
+    print("\nLoad pickle Done!")
+    # exit(0)
+    if FLAGS.combine_set_ab == 'a':
+        train_data = setA_train_data
+    elif FLAGS.combine_set_ab == 'b':
+        train_data = setB_train_data
+    elif FLAGS.combine_set_ab == 'combine':
         train_data = setA_train_data.append(setB_train_data)
     else:
-        train_data = setB_train_data
+        print('combine_set_ab: a|b|combine')
     del setA_train_data, setB_train_data
-    train_data.drop(columns = ['class_name', 'emb', 'attr'], inplace = True)
+    # train_data.drop(columns = ['class_name', 'emb', 'attr'], inplace = True)
 
     if FLAGS.debug:
         train_data = train_data[:500]
         test_data = test_data[:500]
 
     if FLAGS.predict:
-        train_part_img_id = pd.read_csv(model_path + '/train_part_img_id_0.csv', header = None)
-        validate_part_img_id = pd.read_csv(model_path + '/validate_part_img_id_0.csv', header = None)
-        train_part_img_id = train_part_img_id[0].values
-        validate_part_img_id = validate_part_img_id[0].values
+        # train_part_img_id = pd.read_csv(model_path + '/train_part_img_id_0.csv', header = None)
+        # validate_part_img_id = pd.read_csv(model_path + '/validate_part_img_id_0.csv', header = None)
+        # train_part_img_id = train_part_img_id[0].values
+        # validate_part_img_id = validate_part_img_id[0].values
 
-        train_part_df = train_data[train_data['image_id'].isin(train_part_img_id)]
-        validate_part_df = train_data[train_data['image_id'].isin(validate_part_img_id)]
+        # train_part_df = train_data[train_data['image_id'].isin(train_part_img_id)]
+        # validate_part_df = train_data[train_data['image_id'].isin(validate_part_img_id)]
 
-        seen_class = train_part_df.append(validate_part_df).class_id.unique()
+        # seen_class = train_part_df.append(validate_part_df).class_id.unique()
+        seen_class = train_data.class_id.unique()
 
-        img_model = keras_train.DNN_Model(cat_max = 171, #seen_class.shape[0], 
+        img_model = keras_train.DNN_Model(cat_max = 205, #seen_class.shape[0], 
                             flags = FLAGS).model
-        img_model.load_weights(model_path + '/model_0_2018_09_13_08_23_48.h5')
+        model_file_name = glob.glob(model_path + '/model_0_*.h5')[0]
+        print ('Model file name: ', model_file_name)
+        img_model.load_weights(model_file_name)
         img_model_flat = Model(inputs = img_model.input, outputs = img_model.get_layer(name = 'avg_pool').output)
 
-        train_img = extract_array_from_series(train_data['img'])
-        train_img = vgg16.preprocess_input(train_img)
-        train_data['target'] = list(img_model_flat.predict(train_img, verbose = 2))
-        train_data['preds'] = list(img_model.predict(train_img, verbose = 2))
+        train_img = preprocess_img(train_data['img'])
+        train_data['target'] = list(img_model_flat.predict(train_img, verbose = FLAGS.train_verbose))
+        train_data['preds'] = list(img_model.predict(train_img, verbose = FLAGS.train_verbose))
+
+        test_img = preprocess_img(test_data['img'])
+        test_data['target'] = list(img_model_flat.predict(test_img, verbose = FLAGS.train_verbose))
+        test_data['preds'] = list(img_model.predict(test_img, verbose = FLAGS.train_verbose))
 
         # test_data = test_data[:500]
-        train_label, test_data, test_id, valide_data, valide_label = tuple([None] * 5)
+        train_label, test_id, valide_data, valide_label = tuple([None] * 4)
     else:
         # classes = train_data['class_id'].unique()
         # seen_class, unseen_class, _, _ = train_test_split(classes, classes, test_size=FLAGS.unseen_class_ratio)
@@ -192,21 +203,20 @@ def sub(models, stacking_data = None, stacking_label = None, stacking_test_data 
             pickle.dump(stacking_data, handle)
         with open(tmp_model_dir + '/stacking_train_label' + time_label + '.pickle', 'wb+') as handle:
             pickle.dump(stacking_label, handle)
-    elif FLAGS.model_type == 'v':
-        np.save(os.path.join(tmp_model_dir, "vae_data.npy"), stacking_data)
+    elif FLAGS.predict:
+        with open(tmp_model_dir + '/train_data' + time_label + '.pickle', 'wb+') as handle:
+            pickle.dump(stacking_data, handle)
+        with open(tmp_model_dir + '/test_data' + time_label + '.pickle', 'wb+') as handle:
+            pickle.dump(stacking_test_data, handle)
     else:
         # pass
         flat_models = [(Model(inputs = m[0].model.inputs, outputs = m[0].model.get_layer(name = 'avg_pool').output), 'k') for m in models]
-        flat_train_re = models_eval(flat_models, extract_array_from_series(train_data['img']))
-        flat_test_re = models_eval(flat_models, extract_array_from_series(test_data['img']))
+        flat_train_re = models_eval(flat_models, preprocess_img(train_data['img']))
+        flat_test_re = models_eval(flat_models, preprocess_img(test_data['img']))
         with open(tmp_model_dir + '/flat_train_re' + time_label + '.pickle', 'wb+') as handle:
             pickle.dump(flat_train_re, handle)
         with open(tmp_model_dir + '/flat_test_re' + time_label + '.pickle', 'wb+') as handle:
             pickle.dump(flat_test_re, handle)
-    if FLAGS.predict:
-        with open(tmp_model_dir + '/train_data' + time_label + '.pickle', 'wb+') as handle:
-            pickle.dump(stacking_data, handle)
-    else:
         # save model to file
         for i, model in enumerate(models):
             if (model[1] == 'l'):
@@ -244,7 +254,8 @@ if __name__ == "__main__":
         train_data, train_label, test_data, tid, valide_data, valide_label = load_data(col)
         if FLAGS.predict:
             stacking_data = train_data
-            stacking_label, stacking_test_data, train_part_img_id, validate_part_img_id = tuple([None] * 4)
+            stacking_test_data = test_data
+            stacking_label, train_part_img_id, validate_part_img_id = tuple([None] * 3)
         else:
             models, stacking_data, stacking_label, stacking_test_data, train_part_img_id, validate_part_img_id = nfold_train(train_data, train_label, flags = FLAGS, \
                 model_types = list(FLAGS.model_type), scores = scores_text, test_data = test_data, \
