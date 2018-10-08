@@ -7,6 +7,7 @@ import glob
 import gc
 flags = tf.app.flags
 flags.DEFINE_bool("debug", True, "Whether to load small data for debuging")
+flags.DEFINE_bool("predict_flat", False, "Whether to predict_flat")
 flags.DEFINE_string('input-training-data-path', "../data/", 'data dir override')
 flags.DEFINE_string('output-model-path', "../submit/", 'model dir override')
 flags.DEFINE_integer('densenet_nfold', 10, 'number of densenet nfold')
@@ -205,6 +206,28 @@ def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len):
 # test_data['target'] = list(model_eval(img_model[0], img_model[1], test_data))
 # zs_models = train_zs_model(train_data, class_id_emb_attr, flags = FLAGS, img_flat_len = 128)
 
+def predict_flat(img_model, train_data, test_data):
+    time_label = time.strftime('%Y%m%d_%H%M%S')
+    tmp_model_dir = "./model_sub/"
+    if not os.path.isdir(tmp_model_dir):
+        os.makedirs(tmp_model_dir, exist_ok=True)
+    with open(tmp_model_dir + '/train_data_img_flat_' + time_label + '.pickle', 'wb') as handle:
+        pickle.dump(extract_array_from_series(train_data['target']), handle)
+    with open(tmp_model_dir + '/train_data_pred_img_class_' + time_label + '.pickle', 'wb') as handle:
+        pickle.dump(extract_array_from_series(train_data['pred_img_class']), handle)
+    with open(tmp_model_dir + '/test_data_img_flat_' + time_label + '.pickle', 'wb') as handle:
+        pickle.dump(extract_array_from_series(test_data['target']), handle)
+    with open(tmp_model_dir + '/test_data_pred_img_class_' + time_label + '.pickle', 'wb') as handle:
+        pickle.dump(extract_array_from_series(test_data['pred_img_class']), handle)
+
+    if not os.path.isdir(FLAGS.output_model_path):
+        os.makedirs(FLAGS.output_model_path, exist_ok=True)
+    for fileName in os.listdir(tmp_model_dir):
+        dst_file = os.path.join(FLAGS.output_model_path, fileName)
+        if os.path.exists(dst_file):
+            os.remove(dst_file)
+        shutil.move(os.path.join(tmp_model_dir, fileName), FLAGS.output_model_path)
+
 def sub(models, train_data, test_data, class_id_emb_attr, img_model):
     train_id = train_data['class_id'].unique()
     test_img_feature_map = extract_array_from_series(test_data['target'])
@@ -238,9 +261,16 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model):
 if __name__ == "__main__":
     train_data, test_data, class_id_emb_attr, round2_class_id, round2_train_class_id = load_data()
     img_model = train_img_classifier(train_data, flags = FLAGS)
-    train_data['target'] = list(model_eval(img_model[0], img_model[1], train_data))
-    test_data['target'] = list(model_eval(img_model[0], img_model[1], test_data))
-    zs_models = train_zs_model(train_data[train_data.class_id.isin(round2_class_id)], class_id_emb_attr, flags = FLAGS, img_flat_len = FLAGS.img_flat_len)
-    cand_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
-    sub(models = zs_models, train_data = train_data, test_data = test_data, class_id_emb_attr = cand_class_id_emb_attr, \
-        img_model = img_model)
+    train_preds = model_eval(img_model[0], img_model[1], train_data)
+    test_preds = model_eval(img_model[0], img_model[1], test_data)
+    train_data['target'] = list(train_preds[0])
+    test_data['target'] = list(test_preds[0])
+    train_data['pred_img_class'] = list(train_preds[1])
+    test_data['pred_img_class'] = list(test_preds[1])
+    if FLAGS.predict_flat:
+        predict_flat(img_model, train_data, test_data)
+    else:
+        zs_models = train_zs_model(train_data[train_data.class_id.isin(round2_class_id)], class_id_emb_attr, flags = FLAGS, img_flat_len = FLAGS.img_flat_len)
+        cand_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
+        sub(models = zs_models, train_data = train_data, test_data = test_data, class_id_emb_attr = cand_class_id_emb_attr, \
+            img_model = img_model)

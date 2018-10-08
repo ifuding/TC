@@ -58,7 +58,7 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
     """
     if model_type == 'DenseNet':
         flat_model = Model(inputs = model.inputs, outputs = model.get_layer(name = 'avg_pool').output)
-        pred = flat_model.predict(preprocess_img(eval_df['img']))
+        pred = (flat_model.predict(preprocess_img(eval_df['img'])), model.predict(preprocess_img(eval_df['img'])))
     elif model_type == 'DEM':
         zs_model = Model(inputs = model.inputs[:2], outputs = model.outputs[0])
         cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr))
