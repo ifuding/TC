@@ -56,12 +56,14 @@ class DEM:
         word_emb = layers.Input(shape = (600,), name = 'wv')
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
 
-        attr_dense = layers.Dense(300, use_bias = False, kernel_initializer=kernel_initializer, 
+        attr_dense = layers.Dense(600, use_bias = False, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
-        attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [int(img_flat_len * 1.5), 
+        attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
+                                                                            int(img_flat_len * 2),
+                                                                            int(img_flat_len * 1.5), 
                                                                             int(img_flat_len * 1.25), 
-                                                                            int(img_flat_len * 1.125),
+                                                                            # int(img_flat_len * 1.125),
     #                                                                           int(img_flat_len * 0.5)
                                                                             ], \
                                                 activation = 'relu', resnet = False, drop_out_ratio = 0.2)
