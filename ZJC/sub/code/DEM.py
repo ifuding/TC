@@ -6,21 +6,21 @@ import tensorflow as tf
 from utils import *
 from DenseNet import DenseNet
 
-# from tensorflow.python.keras import layers, preprocessing
-# from tensorflow.python.keras import backend as K
-# from tensorflow.python.keras.models import Model, load_model
-# from tensorflow.python.keras.callbacks import EarlyStopping, Callback
-# from tensorflow.python.keras.regularizers import l1, l2
-# from tensorflow.python.keras.optimizers import SGD, RMSprop, Adam, Nadam
-# from tensorflow.python.keras.losses import mean_squared_error, binary_crossentropy
+from tensorflow.python.keras import layers, preprocessing
+from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.models import Model, load_model
+from tensorflow.python.keras.callbacks import EarlyStopping, Callback
+from tensorflow.python.keras.regularizers import l1, l2
+from tensorflow.python.keras.optimizers import SGD, RMSprop, Adam, Nadam
+from tensorflow.python.keras.losses import mean_squared_error, binary_crossentropy
 
-from keras import layers, preprocessing
-from keras import backend as K
-from keras.models import Model, load_model
-from keras.callbacks import EarlyStopping, Callback
-from keras.regularizers import l1, l2
-from keras.optimizers import SGD, RMSprop, Adam, Nadam
-from keras.losses import mean_squared_error, binary_crossentropy
+# from keras import layers, preprocessing
+# from keras import backend as K
+# from keras.models import Model, load_model
+# from keras.callbacks import EarlyStopping, Callback
+# from keras.regularizers import l1, l2
+# from keras.optimizers import SGD, RMSprop, Adam, Nadam
+# from keras.losses import mean_squared_error, binary_crossentropy
 
 class AccuracyEvaluation(Callback):
     def __init__(self, validation_data=(), interval=1, batch_interval = 1000000, verbose = 2, \
@@ -46,7 +46,7 @@ class AccuracyEvaluation(Callback):
         
     def on_epoch_end(self, epoch, logs={}):
         if epoch % self.interval == 0:
-            epoch_scores = model_eval(self.model, self.model_type, self.eval_df, self.cand_class_id_emb_attr, 
+            _, epoch_scores = model_eval(self.model, self.model_type, self.eval_df, self.cand_class_id_emb_attr, 
 #                 seen_class = self.seen_class, 
 #                 unseen_class = self.unseen_class, 
                 img_feature_map = self.y_val,
@@ -104,14 +104,14 @@ class DEM:
         attr_dense = layers.Dense(600, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
-#         attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
-#                                                                             int(img_flat_len * 2),
-#                                                                             int(img_flat_len * 1.5), 
-#                                                                             int(img_flat_len * 1.25), 
-# #                                                                             int(img_flat_len * 1.125),
-# #                                                                             int(img_flat_len * 1.0625)
-#                                                                             ], \
-#                                                 activation = 'relu', resnet = False, drop_out_ratio = 0.2)
+        attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
+                                                                            int(img_flat_len * 2),
+                                                                            int(img_flat_len * 1.5), 
+                                                                            int(img_flat_len * 1.25), 
+#                                                                             int(img_flat_len * 1.125),
+#                                                                             int(img_flat_len * 1.0625)
+                                                                            ], \
+                                                activation = 'relu', resnet = False, drop_out_ratio = 0.2)
         attr_word_emb_dense = self.full_connect_layer(attr_word_emb_dense, hidden_dim = [img_flat_len], 
                                                 activation = 'relu')
 
@@ -324,7 +324,7 @@ class DEM:
         else:
             h = self.model.fit(DNN_Train_Data,  validation_data = (DNN_validate_Data, None),
                         epochs=self.epochs, batch_size = self.batch_size, shuffle=True, verbose = self.verbose, callbacks=callbacks)
-        self.scores.append(pd.DataFrame(scores_list[-1:], columns = self.class_id_dict.keys))
+        self.scores.append(pd.DataFrame(scores_list[-1:], columns = self.class_id_dict.keys()))
         return self.model
 
     def predict(self, test_part, batch_size = 1024, verbose=2):

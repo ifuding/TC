@@ -92,7 +92,7 @@ path = FLAGS.input_training_data_path
 model_path = FLAGS.input_previous_model_path
 
 import sklearn
-from keras.preprocessing import image
+# from keras.preprocessing import image
 from DenseNet import DenseNet
 from DEM import DEM
 from sklearn.model_selection import KFold
@@ -127,8 +127,8 @@ def load_data():
     gc.collect()
     train_data = train_data.merge(class_id_emb_attr, how = 'left', on = 'class_id')
     if FLAGS.debug:
-        train_data = train_data.iloc[:200]
-        test_data = test_data.iloc[:200]
+        train_data = train_data.iloc[-500:]
+        test_data = test_data.iloc[-500:]
 
     # glove_emb = read_class_emb(path + '/DatasetB/class_wordembeddings.txt')
     # fasttext_emb =  read_class_emb(path + '/External/class_wordembeddings_fasttext')
@@ -268,6 +268,7 @@ def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len,
         if num_fold == ensemble_nfold:
             break
     score_df = pd.concat(scores, sort = False)
+    # print (score_df)
     agg_dict = {}
     statistic_columns = ['mean', 'median', 'max', 'min', 'std']
     for c in score_df.columns:
@@ -349,8 +350,8 @@ if __name__ == "__main__":
         predict_flat(img_model, train_data, test_data)
     else:
         round1_class_id = list(set(train_data.class_id.unique()) - set(round2_class_id))
-        zs_models, score_df = train_zs_model(train_data, #[train_data.class_id.isin(round2_class_id)], 
-                class_id_emb_attr = class_id_emb_attr, #[class_id_emb_attr.class_id.isin(round2_class_id)], 
+        zs_models, score_df = train_zs_model(train_data[train_data.class_id.isin(round2_class_id)], 
+                class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)], 
                 flags = FLAGS, 
                 img_flat_len = FLAGS.img_flat_len,
                 round1_class_id = round1_class_id,

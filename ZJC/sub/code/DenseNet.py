@@ -7,12 +7,19 @@ import numpy as np
 import tensorflow as tf
 from utils import preprocess_img
 
-from keras import layers, preprocessing
-from keras import backend as K
-from keras.models import Model, load_model
-from keras.callbacks import EarlyStopping, Callback
-from keras.regularizers import l1, l2
-from keras.optimizers import SGD, RMSprop, Adam, Nadam
+from tensorflow.python.keras import layers, preprocessing
+from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.models import Model, load_model
+from tensorflow.python.keras.callbacks import EarlyStopping, Callback
+from tensorflow.python.keras.regularizers import l1, l2
+from tensorflow.python.keras.optimizers import SGD, RMSprop, Adam, Nadam
+
+# from keras import layers, preprocessing
+# from keras import backend as K
+# from keras.models import Model, load_model
+# from keras.callbacks import EarlyStopping, Callback
+# from keras.regularizers import l1, l2
+# from keras.optimizers import SGD, RMSprop, Adam, Nadam
 K.set_image_data_format('channels_last')
 
 class DenseNet:

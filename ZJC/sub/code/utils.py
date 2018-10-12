@@ -1,11 +1,13 @@
 import numpy as np
-# from tensorflow.python.keras.applications import vgg16
-# from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.applications import vgg16
+from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.preprocessing.image import ImageDataGenerator, NumpyArrayIterator
+from tensorflow.python.keras import backend as K
 
-from keras.applications import vgg16, densenet
-from keras.models import Model
-from keras.preprocessing.image import ImageDataGenerator, NumpyArrayIterator
-from keras import backend as K
+# from keras.applications import vgg16 #, densenet
+# from keras.models import Model
+# from keras.preprocessing.image import ImageDataGenerator, NumpyArrayIterator
+# from keras import backend as K
 
 def extract_array_from_series(s):
     return np.asarray(list(s))
@@ -122,13 +124,13 @@ def calc_accuracy(eval_df, eval_class, preds):
     return right_num / np.sum(eval_mask), right_num, eval_num
     
 def calc_detailed_accuracy(eval_df, preds, class_id_dict):
-    # print ("\n")
+    print ("\n")
     scores = []
     for class_set_name in sorted(class_id_dict):
         class_set = class_id_dict[class_set_name]
         re = calc_accuracy(eval_df, class_set, preds)
         print("%s: \t%.6f\t%.0f\t%.0f" % ((class_set_name,) + re))
-        scores.append(re)
+        scores.append(re[0])
     return scores
     # print ("\n")
         
@@ -179,6 +181,7 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             zs_model = Model(inputs = model.inputs[1:], outputs = model.outputs[0])
             cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr), verbose = verbose)
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
+        scores = None
         if 'class_id' in eval_df.columns:
             scores = calc_detailed_accuracy(eval_df, pred, class_id_dict)
         pred = (pred, scores)
