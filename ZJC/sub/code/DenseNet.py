@@ -7,12 +7,12 @@ import numpy as np
 import tensorflow as tf
 from utils import preprocess_img
 
-from tensorflow.python.keras import layers, preprocessing
-from tensorflow.python.keras import backend as K
-from tensorflow.python.keras.models import Model, load_model
-from tensorflow.python.keras.callbacks import EarlyStopping, Callback
-from tensorflow.python.keras.regularizers import l1, l2
-from tensorflow.python.keras.optimizers import SGD, RMSprop, Adam, Nadam
+from keras import layers, preprocessing
+from keras import backend as K
+from keras.models import Model, load_model
+from keras.callbacks import EarlyStopping, Callback
+from keras.regularizers import l1, l2
+from keras.optimizers import SGD, RMSprop, Adam, Nadam
 K.set_image_data_format('channels_last')
 
 class DenseNet:
@@ -29,6 +29,10 @@ class DenseNet:
         self.lr = flags.lr
         self.verbose = flags.train_verbose
         self.OneHotEncoder = sklearn.preprocessing.OneHotEncoder()
+        self.rotation_range = flags.rotation_range
+        self.shear_range = flags.shear_range 
+        self.zoom_range = flags.zoom_range
+        self.horizontal_flip = flags.horizontal_flip
         self.model = self.small_densenet(
                 blocks = [int(b.strip()) for b in flags.blocks.strip().split(',')], 
                 weight_decay = flags.weight_decay, 
@@ -172,10 +176,10 @@ class DenseNet:
                 ]
         if self.aug_data:
             datagen = preprocessing.image.ImageDataGenerator(
-                    rotation_range=45,
-                    shear_range = 0.2,
-                    zoom_range=0.2,
-                    horizontal_flip=True)
+                    rotation_range=self.rotation_range,
+                    shear_range = self.shear_range,
+                    zoom_range=self.zoom_range,
+                    horizontal_flip=self.horizontal_flip)
 
             datagen.fit(DNN_Train_Data)
 
