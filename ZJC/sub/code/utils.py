@@ -200,13 +200,26 @@ class MixedImageDataGenerator(ImageDataGenerator):
     def __init__(self, **kwargs):
         super(MixedImageDataGenerator, self).__init__(**kwargs)
         
-    def flow(self, x, y = None, **kwargs):
-        """
-        """
-#         return MixedNumpyArrayIterator(**kwargs)
+    def flow(self,
+           x,
+           y=None,
+           batch_size=32,
+           shuffle=True,
+           seed=None,
+           save_to_dir=None,
+           save_prefix='',
+           save_format='png'):
         return MixedNumpyArrayIterator(
-                x, y, self,
-                **kwargs)
+        x,
+        y,
+        self,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        seed=seed,
+        data_format=self.data_format,
+        save_to_dir=save_to_dir,
+        save_prefix=save_prefix,
+        save_format=save_format)
 
 
 class MixedNumpyArrayIterator(NumpyArrayIterator):
@@ -233,14 +246,17 @@ class MixedNumpyArrayIterator(NumpyArrayIterator):
         with self.lock:
             index_array, current_index, current_batch_size = next(
               self.index_generator)
+#         print (index_array)
         # The transformation of images is not under thread lock
         # so it can be done in parallel
         batch_x = np.zeros(
             tuple([current_batch_size] + list(self.x.shape)[1:]), dtype=K.floatx())
         for i, j in enumerate(index_array):
             x = self.x[j]
+#             x_bak = x
             x = self.image_data_generator.random_transform(x.astype(K.floatx()))
             x = self.image_data_generator.standardize(x)
+#             print (np.all(x_bak == x))
             batch_x[i] = x
         batch_x_miscs = [xx[index_array] for xx in self.x_misc]
         batch_x = [batch_x] + batch_x_miscs
