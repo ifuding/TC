@@ -319,7 +319,7 @@ class DEM:
             h = self.model.fit_generator(
                     datagen.flow((DNN_Train_Data[0], DNN_Train_Data[1:]), None, batch_size=self.batch_size), 
                     validation_data=(DNN_validate_Data, None), steps_per_epoch = DNN_Train_Data[0].shape[0]//self.batch_size,
-                    epochs=self.epochs, shuffle=True, verbose = self.verbose, workers=1, use_multiprocessing=False, 
+                    epochs=self.epochs, shuffle=True, verbose = self.verbose, workers=2, use_multiprocessing=False, 
                     callbacks=callbacks)
         else:
             h = self.model.fit(DNN_Train_Data,  validation_data = (DNN_validate_Data, None),
