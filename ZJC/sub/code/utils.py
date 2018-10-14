@@ -200,55 +200,48 @@ class MixedImageDataGenerator(ImageDataGenerator):
     def __init__(self, **kwargs):
         super(MixedImageDataGenerator, self).__init__(**kwargs)
         
-    def flow(self, x,
-             y=None, batch_size=32, shuffle=True,
-             sample_weight=None, seed=None,
-             save_to_dir=None, save_prefix='', save_format='png', subset=None):
+    def flow(self, x, y = None, **kwargs):
         """
         """
 #         return MixedNumpyArrayIterator(**kwargs)
         return MixedNumpyArrayIterator(
                 x, y, self,
-                batch_size=batch_size,
-                shuffle=shuffle,
-                sample_weight=sample_weight,
-                seed=seed,
-                data_format=self.data_format,
-                save_to_dir=save_to_dir,
-                save_prefix=save_prefix,
-                save_format=save_format,
-                subset=subset)
-    
+                **kwargs)
+
+
 class MixedNumpyArrayIterator(NumpyArrayIterator):
-    def __init__(self, x, y, image_data_generator, **kwargs):
-        super(MixedNumpyArrayIterator, self).__init__(x, y, image_data_generator, **kwargs)
-        
-    def _get_batches_of_transformed_samples(self, index_array):
-        batch_x = np.zeros(tuple([len(index_array)] + list(self.x.shape)[1:]),
-                           dtype=self.dtype)
+    """Iterator yielding data from a Numpy array.
+    """
+
+    def __init__(self,
+               x,
+               y,
+               image_data_generator,
+               **kwargs):
+        super(MixedNumpyArrayIterator, self).__init__(x[0],
+               y,
+               image_data_generator,
+               **kwargs)
+        self.x_misc = [np.asarray(xx) for xx in x[1]]
+
+    def next(self):
+        """For python 2.x.
+
+        Returns:
+            The next batch.
+        """
+        with self.lock:
+            index_array, current_index, current_batch_size = next(
+              self.index_generator)
+        # The transformation of images is not under thread lock
+        # so it can be done in parallel
+        batch_x = np.zeros(
+            tuple([current_batch_size] + list(self.x.shape)[1:]), dtype=K.floatx())
         for i, j in enumerate(index_array):
             x = self.x[j]
-            params = self.image_data_generator.get_random_transform(x.shape)
-            x = self.image_data_generator.apply_transform(
-                x.astype(self.dtype), params)
+            x = self.image_data_generator.random_transform(x.astype(K.floatx()))
             x = self.image_data_generator.standardize(x)
             batch_x[i] = x
-
-        if self.save_to_dir:
-            for i, j in enumerate(index_array):
-                img = array_to_img(batch_x[i], self.data_format, scale=True)
-                fname = '{prefix}_{index}_{hash}.{format}'.format(
-                    prefix=self.save_prefix,
-                    index=j,
-                    hash=np.random.randint(1e4),
-                    format=self.save_format)
-                img.save(os.path.join(self.save_to_dir, fname))
         batch_x_miscs = [xx[index_array] for xx in self.x_misc]
-        output = (batch_x if batch_x_miscs == []
-                  else [batch_x] + batch_x_miscs,)
-        if self.y is None:
-            return (output[0], None, None)
-        output += (self.y[index_array],)
-        if self.sample_weight is not None:
-            output += (self.sample_weight[index_array],)
-        return output
+        batch_x = [batch_x] + batch_x_miscs
+        return (batch_x, None, None)
