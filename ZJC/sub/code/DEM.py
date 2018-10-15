@@ -26,7 +26,8 @@ class AccuracyEvaluation(Callback):
     def __init__(self, validation_data=(), interval=1, batch_interval = 1000000, verbose = 2, \
             scores = [], cand_class_id_emb_attr = None, eval_df = None, threshold = None, \
                  seen_class = None, unseen_class = None, gamma = None, model_type = None, 
-                 class_id_dict = None, class_to_id = None):
+                 class_id_dict = None, class_to_id = None, TTA = None, img_model = None,
+                 flags = None):
         super(AccuracyEvaluation, self).__init__()
 
         self.interval = interval
@@ -42,6 +43,9 @@ class AccuracyEvaluation(Callback):
         self.model_type = model_type
         self.class_id_dict = class_id_dict
         self.class_to_id = class_to_id
+        self.TTA = TTA
+        self.img_model = img_model
+        self.flags = flags
 #         self.class_id_dict['All'] = self.eval_df.class_id.unique()
         
     def on_epoch_end(self, epoch, logs={}):
@@ -51,7 +55,10 @@ class AccuracyEvaluation(Callback):
 #                 unseen_class = self.unseen_class, 
                 img_feature_map = self.y_val,
                 class_id_dict = self.class_id_dict,
-                class_to_id = self.class_to_id)
+                class_to_id = self.class_to_id,
+                TTA = self.TTA,
+                img_model = self.img_model,
+                flags = self.flags)
             self.scores.append(epoch_scores)
 
 class DEM:
@@ -75,6 +82,11 @@ class DEM:
         class_ids = class_id_emb_attr.class_id.values
         self.class_to_id = dict([(c, i) for i, c in enumerate(class_ids)])
         self.img_flat_len = img_flat_len
+        self.img_model = img_model
+        self.img_flat_model = Model(inputs = self.img_model[0].inputs, 
+            outputs = self.img_model[0].get_layer(name = 'avg_pool').output)
+        self.TTA = flags.TTA
+        self.flags = flags
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -84,7 +96,6 @@ class DEM:
         elif model_type == 'AE':
             self.model = self.create_ae(img_flat_len = img_flat_len)
         elif model_type == 'DEM_AUG':
-            self.img_model = img_model
             self.rotation_range = flags.rotation_range
             self.shear_range = flags.shear_range 
             self.zoom_range = flags.zoom_range
@@ -128,9 +139,8 @@ class DEM:
         img_input = layers.Input(shape = (64, 64, 3))
 #         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
 
-        flat_img_model = Model(inputs = self.img_model[0].inputs, outputs = self.img_model[0].get_layer(name = 'avg_pool').output)
-        flat_img_model.trainable = False
-        imag_classifier = flat_img_model(img_input)
+        self.img_flat_model.trainable = False
+        imag_classifier = self.img_flat_model(img_input)
         
         attr_dense = layers.Dense(600, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
@@ -300,14 +310,17 @@ class DEM:
         DNN_validate_Data = self.DNN_DataSet(validate_part_df)
         scores_list = []
         callbacks = [
-        EarlyStopping(monitor='val_loss', patience=5, verbose=0),
+        EarlyStopping(monitor='val_loss', patience=self.patience, verbose=0),
         AccuracyEvaluation(validation_data=DNN_validate_Data, interval=1,
                             cand_class_id_emb_attr = self.cand_class_id_emb_attr,
                             eval_df = validate_part_df,
                             model_type = self.model_type,
                             class_id_dict = self.class_id_dict,
                             class_to_id = self.class_to_id,
-                            scores = scores_list)
+                            scores = scores_list,
+                            TTA = self.TTA,
+                            img_model = self.img_flat_model,
+                            flags = self.flags)
         ]
         if self.model_type == 'DEM_AUG':
             datagen = MixedImageDataGenerator(

@@ -8,37 +8,6 @@ import gc
 import argparse
 import sys
 
-# flags = tf.app.flags
-# flags.DEFINE_bool("debug", True, "Whether to load small data for debuging")
-# flags.DEFINE_bool("predict_flat", False, "Whether to predict_flat")
-# flags.DEFINE_string('input-training-data-path', "../data/", 'data dir override')
-# flags.DEFINE_string('output-model-path', "../submit/", 'model dir override')
-# flags.DEFINE_integer('densenet_nfold', 10, 'number of densenet nfold')
-# flags.DEFINE_integer('dem_nfold', 5, 'number of dem nfold')
-# flags.DEFINE_integer('densenet_ensemble_nfold', 1, 'number of ensemble models')
-# flags.DEFINE_integer('dem_ensemble_nfold', 5, 'number of ensemble models')
-# flags.DEFINE_integer('densenet_epochs', 1, 'number of Epochs')
-# flags.DEFINE_integer('dem_epochs', 1, 'number of Epochs')
-# flags.DEFINE_integer('densenet_batch_size', 256, 'Batch size')
-# flags.DEFINE_integer('dem_batch_size', 64, 'Batch size')
-# flags.DEFINE_integer('densenet_patience', 30, 'patience')
-# flags.DEFINE_integer('dem_patience', 10, 'patience')
-# flags.DEFINE_bool("aug_data", True, "aug_data")
-# flags.DEFINE_string('blocks', "2,2", 'densenet blocks')
-# flags.DEFINE_float("weight_decay", 1e-4, "weight_decay")
-# flags.DEFINE_string('kernel_initializer', "glorot_normal", 'kernel_initializer')
-# flags.DEFINE_integer('init_filters', 4, 'init_filters')
-# flags.DEFINE_integer('growth_rate', 2, 'growth_rate')
-# flags.DEFINE_float("reduction", 0.5, "reduction")
-# flags.DEFINE_float("lr", 1e-3, "lr")
-# flags.DEFINE_integer('init_stride', 2, 'init_stride')
-# flags.DEFINE_integer('train_verbose', 1, 'train_verbose')
-# flags.DEFINE_integer('img_flat_len', 1024, 'img_flat_len')
-# flags.DEFINE_string('input-previous-model-path', "../../Data/", 'data dir override')
-# flags.DEFINE_bool('load_img_model', False, 'load_img_model')
-# flags.DEFINE_integer('cat_max', 0, 'cat_max')
-# flags.DEFINE_string('zs_model_type', 'DEM', 'zs_model_type')
-
 @staticmethod
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -56,6 +25,7 @@ default_parser.add_argument("--debug", type=str2bool.__func__, default=True)
 default_parser.add_argument("--predict_flat", type=str2bool.__func__, default=None)
 default_parser.add_argument("--train_verbose", type=int, default=None)
 default_parser.add_argument("--load_img_model", type=str2bool.__func__, default=False)
+default_parser.add_argument("--load_zs_model", type=str2bool.__func__, default=False)
 ## DenseNet args
 default_parser.add_argument("--densenet_nfold", type=int, default=None)
 default_parser.add_argument("--densenet_ensemble_nfold", type=int, default=None)
@@ -85,6 +55,7 @@ default_parser.add_argument("--rotation_range", type=int, default=0)
 default_parser.add_argument("--shear_range", type=float, default=0.)
 default_parser.add_argument("--zoom_range", type=float, default=0.)
 default_parser.add_argument("--horizontal_flip", type=str2bool.__func__, default=False)
+default_parser.add_argument("--TTA", type=int, default=None)
 
 # FLAGS = flags.FLAGS
 (FLAGS, unknown) = default_parser.parse_known_args(sys.argv)
@@ -92,7 +63,7 @@ path = FLAGS.input_training_data_path
 model_path = FLAGS.input_previous_model_path
 
 import sklearn
-# from keras.preprocessing import image
+from tensorflow.python.keras.models import Model, load_model
 from DenseNet import DenseNet
 from DEM import DEM
 from sklearn.model_selection import KFold
@@ -127,8 +98,8 @@ def load_data():
     gc.collect()
     train_data = train_data.merge(class_id_emb_attr, how = 'left', on = 'class_id')
     if FLAGS.debug:
-        train_data = train_data.iloc[-500:]
-        test_data = test_data.iloc[-500:]
+        train_data = train_data.iloc[-200:]
+        test_data = test_data.iloc[-10:]
 
     # glove_emb = read_class_emb(path + '/DatasetB/class_wordembeddings.txt')
     # fasttext_emb =  read_class_emb(path + '/External/class_wordembeddings_fasttext')
@@ -236,6 +207,18 @@ def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len,
     model_type = FLAGS.zs_model_type
     scores = []
     classes = train_data.class_id.unique()
+    if flags.load_zs_model:
+        model_file_names = glob.glob(model_path + '/zsmodel_*.h5')
+        for m_file in model_file_names:
+            print ('Model file name: ', m_file)
+            zs_model = DEM(flags = flags, model_type = model_type, 
+                    img_flat_len = img_flat_len, 
+                    unseen_class = classes,
+                    class_id_emb_attr = class_id_emb_attr,
+                    img_model = img_model).model
+            zs_model.load_weights(m_file)
+            models.append((zs_model, model_type))
+        return models, None
 
     for train_index, test_index in kf.split(classes):
         print ('Fold', num_fold, 'training...')
@@ -308,9 +291,10 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
     test_img_feature_map = None
     if FLAGS.zs_model_type != 'DEM_AUG':
         test_img_feature_map = extract_array_from_series(test_data['target'])
+    img_flat_model = Model(inputs = img_model[0].inputs, outputs = img_model[0].get_layer(name = 'avg_pool').output)
     preds = multi_models_vote(models = models, eval_df = test_data, \
             cand_class_id_emb_attr = class_id_emb_attr[~class_id_emb_attr['class_id'].isin(train_id)], \
-            img_feature_map = test_img_feature_map)
+            img_feature_map = test_img_feature_map, img_model = img_flat_model, TTA = FLAGS.TTA, flags = FLAGS)
     sub = pd.DataFrame(preds, index = test_data['img_id'])
     time_label = time.strftime('%Y%m%d_%H%M%S')
     tmp_model_dir = "./model_sub/"
@@ -318,13 +302,14 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
         os.makedirs(tmp_model_dir, exist_ok=True)
     sub_name = tmp_model_dir + "/submit_"+ time_label + ".txt"
     sub.to_csv(sub_name, header = False, sep = '\t')
-    score_df.to_csv(tmp_model_dir + '/scores.tsv')    
 
-    model_name = tmp_model_dir + "imgmodel_" + time_label + ".h5"
-    img_model[0].save(model_name)
-    for i, model in enumerate(models):
-        model_name = tmp_model_dir + "zsmodel_" + str(i) + time_label + ".h5"
-        model[0].save(model_name)
+    if not FLAGS.load_zs_model:
+        score_df.to_csv(tmp_model_dir + '/scores.tsv')    
+        model_name = tmp_model_dir + "imgmodel_" + time_label + ".h5"
+        img_model[0].save(model_name)
+        for i, model in enumerate(models):
+            model_name = tmp_model_dir + "zsmodel_" + str(i) + time_label + ".h5"
+            model[0].save(model_name)
 
     if not os.path.isdir(FLAGS.output_model_path):
         os.makedirs(FLAGS.output_model_path, exist_ok=True)
