@@ -7,6 +7,7 @@ import glob
 import gc
 import argparse
 import sys
+# import autokeras as ak
 
 @staticmethod
 def str2bool(v):
@@ -170,6 +171,11 @@ def train_img_classifier(train_data, flags):
 
     OneHotEncoder = sklearn.preprocessing.OneHotEncoder()
     train_target = train_data['class_id'].apply(lambda id: category_dict[id]).values
+    # x_train = extract_array_from_series(train_data['img'])
+    # y_train = train_target
+    # clf = ak.ImageClassifier(verbose = True)
+    # clf.fit(x_train, y_train)
+    # sys.exit(0)
     train_target = OneHotEncoder.fit_transform(np.reshape(train_target, (-1, 1))).toarray()
     for train_index, test_index in kf.split(train_data):
         train_part_df = train_data.iloc[train_index]

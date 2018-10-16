@@ -154,6 +154,23 @@ def multi_models_vote(models, eval_df = None, cand_class_id_emb_attr = None, img
         calc_detailed_accuracy(eval_df, vote_preds, class_id_dict)
     return vote_preds
 
+def tta_pred(TTA = None, img_model = None, batch_size = 128, eval_df = None,
+            flags = None, verbose = 2, cand_class_id_emb_attr = None, cand_feature_map = None):
+    print ('Enable TTA', TTA)
+    datagen = MixedImageDataGenerator(
+            rotation_range = flags.rotation_range,
+            shear_range = flags.shear_range,
+            zoom_range = flags.zoom_range,
+            horizontal_flip = flags.horizontal_flip)
+    img_feature_map = img_model.predict_generator(
+        datagen.flow((preprocess_img(eval_df['img'])), None, shuffle = False, batch_size = batch_size), 
+        steps = np.ceil(eval_df.shape[0] / batch_size) * TTA, verbose = verbose)
+    pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
+    pred = np.reshape(pred, (TTA, eval_df.shape[0])).T
+    pred = multi_preds_vote(pred)
+    return pred
+    
+
 def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_feature_map = None, 
                 class_id_dict = None, class_to_id = None, verbose = 2, img_model = None, TTA = None,
                 flags = None):
@@ -169,18 +186,8 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             zs_model = Model(inputs = model.inputs[:2], outputs = model.outputs[0])
             cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr), verbose = verbose)
             if TTA is not None:
-                batch_size = 128
-                datagen = MixedImageDataGenerator(
-                        rotation_range = flags.rotation_range,
-                        shear_range = flags.shear_range,
-                        zoom_range = flags.zoom_range,
-                        horizontal_flip = flags.horizontal_flip)
-                img_feature_map = img_model.predict_generator(
-                    datagen.flow((preprocess_img(eval_df['img'])), None, shuffle = False, batch_size = batch_size), 
-                    steps = np.ceil(eval_df.shape[0] / batch_size) * TTA, verbose = verbose)
-                pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
-                pred = np.reshape(pred, (TTA, eval_df.shape[0])).T
-                pred = multi_preds_vote(pred)
+                pred = tta_pred(TTA = TTA, img_model = img_model, batch_size = 128, eval_df = eval_df,
+                    flags = flags, verbose = verbose, cand_class_id_emb_attr = cand_class_id_emb_attr, cand_feature_map = cand_feature_map)
             else:
                 pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
         elif model_type == 'GCN':
@@ -194,11 +201,15 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, None, img_feature_map, 
                                     model_type, attr_preds)
         elif model_type == 'DEM_AUG':
-            img_model = Model(inputs = model.inputs[0], outputs = model.outputs[-1])
-            img_feature_map = img_model.predict(preprocess_img(eval_df['img']), verbose = verbose)
             zs_model = Model(inputs = model.inputs[1:], outputs = model.outputs[0])
             cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr), verbose = verbose)
-            pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
+            img_model = Model(inputs = model.inputs[0], outputs = model.outputs[-1])
+            if TTA is not None:
+                pred = tta_pred(TTA = TTA, img_model = img_model, batch_size = 128, eval_df = eval_df,
+                    flags = flags, verbose = verbose, cand_class_id_emb_attr = cand_class_id_emb_attr, cand_feature_map = cand_feature_map)
+            else:
+                img_feature_map = img_model.predict(preprocess_img(eval_df['img']), verbose = verbose)
+                pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
         scores = None
         if 'class_id' in eval_df.columns:
             scores = calc_detailed_accuracy(eval_df, pred, class_id_dict)
