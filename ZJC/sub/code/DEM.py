@@ -33,7 +33,7 @@ class AccuracyEvaluation(Callback):
         self.interval = interval
         # print (validation_data)
 #         self.X_val, _, 
-        self.y_val = validation_data[-1]
+        self.y_val = validation_data[2]
         self.verbose = verbose
         self.scores = scores
         self.cand_class_id_emb_attr = cand_class_id_emb_attr
@@ -101,6 +101,8 @@ class DEM:
             self.zoom_range = flags.zoom_range
             self.horizontal_flip = flags.horizontal_flip
             self.model = self.create_dem_aug(img_flat_len = img_flat_len)
+        elif model_type == 'DEM_BC':
+            self.model = self.create_dem_bc(img_flat_len = img_flat_len)
         self.class_id_dict = {
 #                              'seen_class': seen_class,
                              'Unseen_class': unseen_class,
@@ -162,7 +164,41 @@ class DEM:
         model.add_loss(mse_loss)
         model.compile(optimizer=Adam(lr=1e-4), loss=None)
         return model
-    
+
+    def create_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024):
+        attr_input = layers.Input(shape = (50,), name = 'attr')
+        word_emb = layers.Input(shape = (600,), name = 'wv')
+        imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
+        label = layers.Input(shape = (1,), name = 'label')
+        
+        attr_dense = layers.Dense(600, use_bias = True, kernel_initializer=kernel_initializer, 
+                        kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
+        attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
+        attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
+                                                                            int(img_flat_len * 2),
+                                                                            int(img_flat_len * 1.5), 
+                                                                            int(img_flat_len * 1.25), 
+#                                                                             int(img_flat_len * 1.125),
+#                                                                             int(img_flat_len * 1.0625)
+                                                                            ], \
+                                                activation = 'relu', resnet = False, drop_out_ratio = 0.2)
+        attr_word_emb_dense = self.full_connect_layer(attr_word_emb_dense, hidden_dim = [img_flat_len], 
+                                                activation = 'relu')
+        
+        attr_img_input = [layers.Input(shape = (img_flat_len,), name = 'img_from_attr'), 
+                          layers.Input(shape = (img_flat_len,), name = 'img2')]
+        attr_x_img = layers.Lambda(lambda x: x[0] * x[1], name = 'attr_x_img')(attr_img_input)
+        proba = self.full_connect_layer(attr_x_img, hidden_dim = [1], activation = 'sigmoid')
+        attr_img_model = Model(inputs = attr_img_input, outputs = proba, name = 'attr_x_img_model')
+        
+        out = attr_img_model([attr_word_emb_dense, imag_classifier])
+        
+        bc_loss = K.mean(binary_crossentropy(label, out))
+        model = Model([attr_input, word_emb, imag_classifier, label], outputs = [attr_word_emb_dense, out])
+        model.add_loss(bc_loss)
+        model.compile(optimizer=Adam(lr=1e-4), loss=None)
+        return model
+
     def create_img2attr(self, kernel_initializer = 'he_normal', img_flat_len = 1024):
         attr_input = layers.Input(shape = (50,), name = 'attr')
         word_emb = layers.Input(shape = (600,), name = 'wv')
@@ -290,7 +326,7 @@ class DEM:
                 full_connect = layers.Concatenate()([fc_in, full_connect])
         return full_connect
 
-    def DNN_DataSet(self, df):
+    def DNN_DataSet(self, df, neg_aug = False):
         """
         """
         if self.model_type == 'DEM' or self.model_type == 'I2A' or self.model_type == 'AE':
@@ -299,6 +335,8 @@ class DEM:
             return [preprocess_img(df['img'])] + create_dem_data(df)
         elif self.model_type == 'GCN':
             return [create_gcn_data(df, self.class_to_id), extract_array_from_series(df['target'])]
+        elif self.model_type == 'DEM_BC':
+            return create_dem_bc_data(df, neg_aug)
 
     def train(self, train_part_df, validate_part_df):
         """
@@ -306,7 +344,7 @@ class DEM:
         """
         print("-----DNN training-----")
 
-        DNN_Train_Data = self.DNN_DataSet(train_part_df)
+        DNN_Train_Data = self.DNN_DataSet(train_part_df, True)
         DNN_validate_Data = self.DNN_DataSet(validate_part_df)
         scores_list = []
         callbacks = [

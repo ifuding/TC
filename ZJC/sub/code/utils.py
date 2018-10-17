@@ -1,4 +1,5 @@
 import numpy as np
+import sklearn
 from tensorflow.python.keras.applications import vgg16
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.preprocessing.image import ImageDataGenerator, NumpyArrayIterator
@@ -18,6 +19,20 @@ def create_dem_data(df):
 
 def create_gcn_data(df, class_to_id):
     return np.array([class_to_id[c] for c in df['class_id'].values]).astype('int32')
+
+def create_dem_bc_data(df, neg_aug = False):
+    """
+    """
+    train_data = create_dem_data(df) + [extract_array_from_series(df['target'])]
+    train_len = train_data[0].shape[0]
+    if neg_aug:
+        perm_target = np.random.permutation(train_data[-1])
+        neg_data = train_data[:-1] + [perm_target]
+        merge_data = [np.r_[train_data[i], neg_data[i]] for i in range(3)]
+        y = np.r_[np.ones(train_len), np.zeros(train_len)]
+        return merge_data + [y]
+    else:
+        return train_data + [np.ones(train_len)]
 
 def preprocess_numpy_input(x, data_format = 'channels_last', mode = 'torch', **kwargs):
     """Preprocesses a Numpy array encoding a batch of images.
@@ -104,12 +119,16 @@ def multi_labels_cross_entropy(y_true, y_preds, eps = 1e-6):
     return np.mean(multi_loss, axis = -1)
 
 def find_nearest_class(class_id_emb_attr, eval_df, cand_feature_map, img_feature_map,
-                      model_type = None, attr_preds = None):
+                      model_type = None, attr_preds = None, zs_model = None):
     nearest_class_id = ['ZJL'] * img_feature_map.shape[0]
     for i in range(img_feature_map.shape[0]):
         if model_type == 'I2A':
             dis = multi_labels_cross_entropy(extract_array_from_series(class_id_emb_attr['attr'])[:, :50],
                                             attr_preds[i])
+        elif model_type == 'DEM_BC':
+            img = img_feature_map[i]
+            pred_data = [cand_feature_map, np.array([img] * class_id_emb_attr.shape[0])]
+            dis = 1 - zs_model.predict(pred_data)
         else:
             img = img_feature_map[i]
             dis = np.linalg.norm(img - cand_feature_map, axis = 1)
@@ -195,6 +214,13 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             cand_class_to_id = [class_to_id[c] for c in cand_class_id_emb_attr.class_id.values]
             cand_feature_map = zs_model.predict(None, steps = 1)[cand_class_to_id]
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
+        elif model_type == 'DEM_BC':
+            zs_model = Model(inputs = model.inputs[:2], outputs = model.outputs[0])
+            cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr), verbose = 2)
+            zs_model = Model(inputs = model.get_layer('attr_x_img_model').inputs, 
+                            outputs = model.get_layer('attr_x_img_model').outputs)
+            pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map = cand_feature_map, img_feature_map = img_feature_map,
+                                    zs_model = zs_model, model_type = model_type)
         elif model_type == 'I2A':
             zs_model = Model(inputs = model.inputs[-1], outputs = model.outputs[0])
             attr_preds = zs_model.predict(extract_array_from_series(img_feature_map), verbose = verbose)
