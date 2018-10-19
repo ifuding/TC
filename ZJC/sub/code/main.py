@@ -7,7 +7,7 @@ import glob
 import gc
 import argparse
 import sys
-# import autokeras as ak
+import autokeras as ak
 
 @staticmethod
 def str2bool(v):
@@ -24,6 +24,7 @@ default_parser.add_argument("--output-model-path", type=str, default=None)
 default_parser.add_argument("--input-previous-model-path", type=str, default=None)
 default_parser.add_argument("--debug", type=str2bool.__func__, default=True)
 default_parser.add_argument("--predict_flat", type=str2bool.__func__, default=None)
+default_parser.add_argument("--predict_prob", type=str2bool.__func__, default=None)
 default_parser.add_argument("--train_verbose", type=int, default=None)
 default_parser.add_argument("--load_img_model", type=str2bool.__func__, default=False)
 default_parser.add_argument("--load_zs_model", type=str2bool.__func__, default=False)
@@ -57,6 +58,11 @@ default_parser.add_argument("--shear_range", type=float, default=0.)
 default_parser.add_argument("--zoom_range", type=float, default=0.)
 default_parser.add_argument("--horizontal_flip", type=str2bool.__func__, default=False)
 default_parser.add_argument("--TTA", type=int, default=None)
+default_parser.add_argument("--neg_aug", type=int, default=None)
+## ENAS
+default_parser.add_argument("--enas", type=str2bool.__func__, default=False)
+default_parser.add_argument("--enas_fold", type=int, default=None)
+default_parser.add_argument("--enas_time", type=int, default=None)
 
 # FLAGS = flags.FLAGS
 (FLAGS, unknown) = default_parser.parse_known_args(sys.argv)
@@ -68,7 +74,7 @@ from tensorflow.python.keras.models import Model, load_model
 from DenseNet import DenseNet
 from DEM import DEM
 from sklearn.model_selection import KFold
-from utils import model_eval, models_eval, multi_models_vote, extract_array_from_series
+from utils import model_eval, models_eval, multi_models_vote, extract_array_from_series, preprocess_img
 import shutil
 import os
 from tqdm import tqdm, tqdm_notebook
@@ -148,6 +154,21 @@ def load_data():
     return train_data, test_data, class_id_emb_attr, round2_class_id, round2_train_class_id
 
 # train_data, test_data, class_id_emb_attr = load_data()
+def ENAS(train_data):
+    clf = ak.ImageClassifier(verbose = True)
+    fold = FLAGS.enas_fold
+    kf = KFold(n_splits=fold, shuffle=True, random_state = 100)
+    for _, test_index in kf.split(train_data):
+        debug_data = train_data.iloc[test_index]
+        break
+    print ('train size', debug_data.shape[0])
+    x_train = preprocess_img(debug_data['img'])
+
+    category = debug_data['class_id'].unique()
+    print ('class size ', category.shape[0])
+    category_dict = dict((category[i], i) for i in range(category.shape[0]))
+    y_train = debug_data['class_id'].apply(lambda id: category_dict[id]).values
+    clf.fit(x_train, y_train, time_limit = FLAGS.enas_time)
 
 def train_img_classifier(train_data, flags):
     print("Over all training size:")
@@ -298,16 +319,17 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
     if FLAGS.zs_model_type != 'DEM_AUG':
         test_img_feature_map = extract_array_from_series(test_data['target'])
     img_flat_model = Model(inputs = img_model[0].inputs, outputs = img_model[0].get_layer(name = 'avg_pool').output)
-    preds = multi_models_vote(models = models, eval_df = test_data, \
+    vote_preds, preds = multi_models_vote(models = models, eval_df = test_data, \
             cand_class_id_emb_attr = class_id_emb_attr[~class_id_emb_attr['class_id'].isin(train_id)], \
             img_feature_map = test_img_feature_map, img_model = img_flat_model, TTA = FLAGS.TTA, flags = FLAGS)
-    sub = pd.DataFrame(preds, index = test_data['img_id'])
+    sub = pd.DataFrame(vote_preds, index = test_data['img_id'])
     time_label = time.strftime('%Y%m%d_%H%M%S')
     tmp_model_dir = "./model_sub/"
     if not os.path.isdir(tmp_model_dir):
         os.makedirs(tmp_model_dir, exist_ok=True)
     sub_name = tmp_model_dir + "/submit_"+ time_label + ".txt"
     sub.to_csv(sub_name, header = False, sep = '\t')
+    pd.DataFrame(preds, index = test_data['img_id']).to_csv(tmp_model_dir + "/preds_"+ time_label + ".txt", header = False, sep = '\t')
 
     if not FLAGS.load_zs_model:
         score_df.to_csv(tmp_model_dir + '/scores.tsv')    
@@ -329,25 +351,28 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
 
 if __name__ == "__main__":
     train_data, test_data, class_id_emb_attr, round2_class_id, round2_train_class_id = load_data()
-    img_model = train_img_classifier(train_data, flags = FLAGS)
-    if FLAGS.zs_model_type != 'DEM_AUG':
-        train_preds = model_eval(img_model[0], img_model[1], train_data, verbose = FLAGS.train_verbose)
-        test_preds = model_eval(img_model[0], img_model[1], test_data, verbose = FLAGS.train_verbose)
-        train_data['target'] = list(train_preds[0])
-        test_data['target'] = list(test_preds[0])
-        train_data['pred_img_class'] = list(train_preds[1])
-        test_data['pred_img_class'] = list(test_preds[1])
-    if FLAGS.predict_flat:
-        predict_flat(img_model, train_data, test_data)
+    if FLAGS.enas:
+        ENAS(train_data)
     else:
-        round1_class_id = list(set(train_data.class_id.unique()) - set(round2_class_id))
-        zs_models, score_df = train_zs_model(train_data[train_data.class_id.isin(round2_class_id)], 
-                class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)], 
-                flags = FLAGS, 
-                img_flat_len = FLAGS.img_flat_len,
-                round1_class_id = round1_class_id,
-                round2_class_id = round2_class_id,
-                img_model = img_model)
-        cand_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
-        sub(models = zs_models, train_data = train_data, test_data = test_data, class_id_emb_attr = cand_class_id_emb_attr, \
-            img_model = img_model, score_df = score_df)
+        img_model = train_img_classifier(train_data, flags = FLAGS)
+        if FLAGS.zs_model_type != 'DEM_AUG':
+            train_preds = model_eval(img_model[0], img_model[1], train_data, verbose = FLAGS.train_verbose, flags = FLAGS)
+            test_preds = model_eval(img_model[0], img_model[1], test_data, verbose = FLAGS.train_verbose, flags = FLAGS)
+            train_data['target'] = list(train_preds[0])
+            test_data['target'] = list(test_preds[0])
+            train_data['pred_img_class'] = list(train_preds[1])
+            test_data['pred_img_class'] = list(test_preds[1])
+        if FLAGS.predict_flat:
+            predict_flat(img_model, train_data, test_data)
+        else:
+            round1_class_id = list(set(train_data.class_id.unique()) - set(round2_class_id))
+            zs_models, score_df = train_zs_model(train_data[train_data.class_id.isin(round2_class_id)], 
+                    class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)], 
+                    flags = FLAGS, 
+                    img_flat_len = FLAGS.img_flat_len,
+                    round1_class_id = round1_class_id,
+                    round2_class_id = round2_class_id,
+                    img_model = img_model)
+            cand_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
+            sub(models = zs_models, train_data = train_data, test_data = test_data, class_id_emb_attr = cand_class_id_emb_attr, \
+                img_model = img_model, score_df = score_df)

@@ -34,6 +34,8 @@ class AccuracyEvaluation(Callback):
         # print (validation_data)
 #         self.X_val, _, 
         self.y_val = validation_data[2]
+        if model_type == 'DEM_BC':
+            self.y_val = validation_data[0]
         self.verbose = verbose
         self.scores = scores
         self.cand_class_id_emb_attr = cand_class_id_emb_attr
@@ -87,6 +89,7 @@ class DEM:
             outputs = self.img_model[0].get_layer(name = 'avg_pool').output)
         self.TTA = flags.TTA
         self.flags = flags
+        self.neg_aug = flags.neg_aug
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -194,7 +197,7 @@ class DEM:
         out = attr_img_model([attr_word_emb_dense, imag_classifier])
         
         bc_loss = K.mean(binary_crossentropy(label, out))
-        model = Model([attr_input, word_emb, imag_classifier, label], outputs = [attr_word_emb_dense, out])
+        model = Model([imag_classifier, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out])
         model.add_loss(bc_loss)
         model.compile(optimizer=Adam(lr=1e-4), loss=None)
         return model
@@ -326,7 +329,7 @@ class DEM:
                 full_connect = layers.Concatenate()([fc_in, full_connect])
         return full_connect
 
-    def DNN_DataSet(self, df, neg_aug = False):
+    def DNN_DataSet(self, df, neg_aug = 0):
         """
         """
         if self.model_type == 'DEM' or self.model_type == 'I2A' or self.model_type == 'AE':
@@ -344,7 +347,7 @@ class DEM:
         """
         print("-----DNN training-----")
 
-        DNN_Train_Data = self.DNN_DataSet(train_part_df, True)
+        DNN_Train_Data = self.DNN_DataSet(train_part_df, neg_aug = self.neg_aug)
         DNN_validate_Data = self.DNN_DataSet(validate_part_df)
         scores_list = []
         callbacks = [

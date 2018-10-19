@@ -20,19 +20,32 @@ def create_dem_data(df):
 def create_gcn_data(df, class_to_id):
     return np.array([class_to_id[c] for c in df['class_id'].values]).astype('int32')
 
-def create_dem_bc_data(df, neg_aug = False):
+def neg_aug_data(pos_data):
+    pos_len = pos_data[0].shape[0]
+    ind_array = np.array(range(pos_len))
+    perm_ind_array = np.random.permutation(ind_array)
+    perm_label = np.zeros(pos_len)
+    perm_label[ind_array == perm_ind_array] = 1
+    perm_img_feature_map = pos_data[0][perm_ind_array] 
+        
+    neg_data = [perm_img_feature_map] + pos_data[1:3] + [perm_label]
+    return neg_data
+        
+def create_dem_bc_data(df, neg_aug = 0):
     """
     """
-    train_data = create_dem_data(df) + [extract_array_from_series(df['target'])]
+    train_data = [extract_array_from_series(df['target'])] + create_dem_data(df)
     train_len = train_data[0].shape[0]
-    if neg_aug:
-        perm_target = np.random.permutation(train_data[-1])
-        neg_data = train_data[:-1] + [perm_target]
-        merge_data = [np.r_[train_data[i], neg_data[i]] for i in range(3)]
-        y = np.r_[np.ones(train_len), np.zeros(train_len)]
-        return merge_data + [y]
+    train_data = train_data + [np.ones(train_len)]
+    merge_data = train_data
+    if neg_aug > 0:
+        for i in range(neg_aug):
+            neg_data = neg_aug_data(train_data)
+            merge_data = [np.r_[merge_data[i], neg_data[i]] for i in range(len(merge_data))]
+        print ('DEM BC Data Train Len, Pos, Neg:', train_len, np.sum(merge_data[-1]), np.sum(merge_data[-1] == 0))
+        return merge_data
     else:
-        return train_data + [np.ones(train_len)]
+        return train_data
 
 def preprocess_numpy_input(x, data_format = 'channels_last', mode = 'torch', **kwargs):
     """Preprocesses a Numpy array encoding a batch of images.
@@ -171,7 +184,7 @@ def multi_models_vote(models, eval_df = None, cand_class_id_emb_attr = None, img
     # print (vote_preds)
     if 'class_id' in eval_df.columns: 
         calc_detailed_accuracy(eval_df, vote_preds, class_id_dict)
-    return vote_preds
+    return vote_preds, preds
 
 def tta_pred(TTA = None, img_model = None, batch_size = 128, eval_df = None,
             flags = None, verbose = 2, cand_class_id_emb_attr = None, cand_feature_map = None):
@@ -198,7 +211,10 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
     if model_type == 'DenseNet':
         flat_model = Model(inputs = model.inputs, outputs = model.get_layer(name = 'avg_pool').output)
         pred_flat = flat_model.predict(preprocess_img(eval_df['img']), verbose = verbose)
-        pred_proba = model.predict(preprocess_img(eval_df['img']), verbose = verbose)
+        if flags.predict_prob:
+            pred_proba = model.predict(preprocess_img(eval_df['img']), verbose = verbose)
+        else:
+            pred_proba = np.zeros(pred_flat.shape[0])
         pred = (pred_flat, pred_proba)
     else:
         if model_type == 'DEM' or model_type == 'AE':
@@ -215,7 +231,7 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             cand_feature_map = zs_model.predict(None, steps = 1)[cand_class_to_id]
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
         elif model_type == 'DEM_BC':
-            zs_model = Model(inputs = model.inputs[:2], outputs = model.outputs[0])
+            zs_model = Model(inputs = model.inputs[1:3], outputs = model.outputs[0])
             cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr), verbose = 2)
             zs_model = Model(inputs = model.get_layer('attr_x_img_model').inputs, 
                             outputs = model.get_layer('attr_x_img_model').outputs)

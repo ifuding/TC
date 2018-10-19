@@ -1,0 +1,91 @@
+from abc import ABC, abstractmethod
+
+
+class Supervised(ABC):
+    """The base class for all supervised task.
+
+    Attributes:
+        verbose: A boolean value indicating the verbosity mode.
+    """
+
+    def __init__(self, verbose=False):
+        """Initialize the instance.
+
+        Args:
+            verbose: A boolean of whether the search process will be printed to stdout.
+        """
+        self.verbose = verbose
+
+    @abstractmethod
+    def fit(self, x, y, x_test=None, y_test=None, time_limit=None):
+        """Find the best neural architecture and train it.
+
+        Based on the given dataset, the function will find the best neural architecture for it.
+        The dataset is in numpy.ndarray format.
+        So they training data should be passed through `x_train`, `y_train`.
+
+        Args:
+            x: A numpy.ndarray instance containing the training data.
+            y: A numpy.ndarray instance containing the label of the training data.
+            x_test: A numpy.ndarray instance containing the testing data
+            y_test: A numpy.ndarray instance containing the label of the testing data.
+            time_limit: The time limit for the search in seconds.
+        """
+
+    @abstractmethod
+    def final_fit(self, x_train, y_train, x_test, y_test, trainer_args=None, retrain=False):
+        """Final training after found the best architecture.
+
+        Args:
+            x_train: A numpy.ndarray of training data.
+            y_train: A numpy.ndarray of training targets.
+            x_test: A numpy.ndarray of testing data.
+            y_test: A numpy.ndarray of testing targets.
+            trainer_args: A dictionary containing the parameters of the ModelTrainer constructor.
+            retrain: A boolean of whether reinitialize the weights of the model.
+        """
+
+    @abstractmethod
+    def predict(self, x_test):
+        """Return predict results for the testing data.
+
+        Args:
+            x_test: An instance of numpy.ndarray containing the testing data.
+
+        Returns:
+            A numpy.ndarray containing the results.
+        """
+        pass
+
+    @abstractmethod
+    def evaluate(self, x_test, y_test):
+        """Return the accuracy score between predict value and `y_test`."""
+        pass
+
+
+class PortableClass(ABC):
+    def __init__(self, graph):
+        """Initialize the instance.
+
+        Args:
+            graph: The graph form of the learned model
+
+        """
+        self.graph = graph
+
+    @abstractmethod
+    def predict(self, x_test):
+        """Return predict results for the testing data.
+
+        Args:
+            x_test: An instance of numpy.ndarray containing the testing data.
+
+        Returns:
+            A numpy.ndarray containing the results.
+        """
+        pass
+
+    @abstractmethod
+    def evaluate(self, x_test, y_test):
+        """Return the accuracy score between predict value and `y_test`."""
+        pass
