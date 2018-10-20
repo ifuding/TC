@@ -176,7 +176,7 @@ class DEM:
         
         attr_dense = layers.Dense(600, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
-        attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
+        attr_word_emb = word_emb #layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
         attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
                                                                             int(img_flat_len * 2),
                                                                             int(img_flat_len * 1.5), 

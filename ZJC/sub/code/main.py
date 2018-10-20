@@ -366,8 +366,8 @@ if __name__ == "__main__":
             predict_flat(img_model, train_data, test_data)
         else:
             round1_class_id = list(set(train_data.class_id.unique()) - set(round2_class_id))
-            zs_models, score_df = train_zs_model(train_data[train_data.class_id.isin(round2_class_id)], 
-                    class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)], 
+            zs_models, score_df = train_zs_model(train_data, #[train_data.class_id.isin(round2_class_id)], 
+                    class_id_emb_attr = class_id_emb_attr, #[class_id_emb_attr.class_id.isin(round2_class_id)], 
                     flags = FLAGS, 
                     img_flat_len = FLAGS.img_flat_len,
                     round1_class_id = round1_class_id,

@@ -10,5 +10,5 @@ python3 main.py \
         --blocks 6,8,10,12 --weight_decay 1e-4 --kernel_initializer glorot_normal --aug_data True \
         --rotation_range 20 --shear_range 0.2 --zoom_range 0.2 --horizontal_flip True \
         --init_filters 128 --growth_rate 32 --reduction 0.5 --lr 1e-3 --init_stride 1 --img_flat_len 1032 --cat_max 365 \
-        --load_img_model False --predict_flat False --load_zs_model false --TTA 5 --neg_aug 2 --predict_prob False --enas True \
+        --load_img_model False --predict_flat False --load_zs_model false --TTA 5 --neg_aug 2 --predict_prob False --enas False \
         --enas_fold 10 --enas_time 60
