@@ -13,37 +13,39 @@ from tensorflow.python.keras import backend as K
 def extract_array_from_series(s):
     return np.asarray(list(s))
 
-def create_dem_data(df):
-    emb = extract_array_from_series(df['emb'])[:, :]
-    attr = np.zeros((emb.shape[0], 50))
-    return [attr, emb]
-    # return [extract_array_from_series(df['attr'])[:, :30], extract_array_from_series(df['emb'])[:, :]]
-    # return [extract_array_from_series(df['attr'])[:, :50], extract_array_from_series(df['emb'])[:, :]]
+def create_dem_data(df, only_emb = False):
+    if only_emb:
+        emb = extract_array_from_series(df['emb'])[:, :]
+        attr = np.zeros((emb.shape[0], 50))
+        return [attr, emb]
+    else:
+        return [extract_array_from_series(df['attr'])[:, :50], extract_array_from_series(df['emb'])[:, :]]
 
 def create_gcn_data(df, class_to_id):
     return np.array([class_to_id[c] for c in df['class_id'].values]).astype('int32')
 
-def neg_aug_data(pos_data):
+def neg_aug_data(pos_data, train_class_id):
     pos_len = pos_data[0].shape[0]
     ind_array = np.array(range(pos_len))
     perm_ind_array = np.random.permutation(ind_array)
     perm_label = np.zeros(pos_len)
-    perm_label[ind_array == perm_ind_array] = 1
+    perm_label[train_class_id == train_class_id[perm_ind_array]] = 1
     perm_img_feature_map = pos_data[0][perm_ind_array] 
         
     neg_data = [perm_img_feature_map] + pos_data[1:3] + [perm_label]
     return neg_data
         
-def create_dem_bc_data(df, neg_aug = 0):
+def create_dem_bc_data(df, neg_aug = 0, only_emb = False):
     """
     """
-    train_data = [extract_array_from_series(df['target'])] + create_dem_data(df)
+    train_data = [extract_array_from_series(df['target'])] + create_dem_data(df, only_emb)
     train_len = train_data[0].shape[0]
     train_data = train_data + [np.ones(train_len)]
     merge_data = train_data
     if neg_aug > 0:
+        train_class_id = extract_array_from_series(df['class_id'])
         for i in range(neg_aug):
-            neg_data = neg_aug_data(train_data)
+            neg_data = neg_aug_data(train_data, train_class_id)
             merge_data = [np.r_[merge_data[i], neg_data[i]] for i in range(len(merge_data))]
         print ('DEM BC Data Train Len, Pos, Neg:', train_len, np.sum(merge_data[-1]), np.sum(merge_data[-1] == 0))
         return merge_data
@@ -235,7 +237,7 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
         elif model_type == 'DEM_BC':
             zs_model = Model(inputs = model.inputs[1:3], outputs = model.outputs[0])
-            cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr), verbose = 2)
+            cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr, flags.only_emb), verbose = 2)
             zs_model = Model(inputs = model.get_layer('attr_x_img_model').inputs, 
                             outputs = model.get_layer('attr_x_img_model').outputs)
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map = cand_feature_map, img_feature_map = img_feature_map,

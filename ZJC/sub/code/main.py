@@ -28,6 +28,7 @@ default_parser.add_argument("--predict_prob", type=str2bool.__func__, default=No
 default_parser.add_argument("--train_verbose", type=int, default=None)
 default_parser.add_argument("--load_img_model", type=str2bool.__func__, default=False)
 default_parser.add_argument("--load_zs_model", type=str2bool.__func__, default=False)
+default_parser.add_argument("--only_emb", type=str2bool.__func__, default=False)
 ## DenseNet args
 default_parser.add_argument("--densenet_nfold", type=int, default=None)
 default_parser.add_argument("--densenet_ensemble_nfold", type=int, default=None)
@@ -88,8 +89,9 @@ def read_class_emb(class_emb_path):
 
 def load_data():
     print("\nData Load Stage")
-    with open(path + 'round2_class_id_emb_attr.pkl', 'rb') as handle:
+    with open(path + 'round2_class_id_emb_attr_add_golve_crawl_42B.pkl', 'rb') as handle:
         class_id_emb_attr = pickle.load(handle)
+        class_id_emb_attr.drop(columns = ['emb_glove', 'emb_fasttext', 'emb_glove_crawl', 'emb_glove_crawl_42B'])
     with open(path + '/round1_train_img_part0.pkl', 'rb') as handle:
         round1_train_img_part0 = pickle.load(handle)
     with open(path + '/round1_train_img_part1.pkl', 'rb') as handle:
@@ -272,20 +274,14 @@ def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len,
                     img_model = img_model)
         if num_fold == 0:
             print (zs_model.model.summary())
-        zs_model.train(train_part_df, validate_part_df)
+        zs_model.train(train_part_df, validate_part_df, num_fold)
         models.append((zs_model.model, model_type))
         num_fold += 1
         if num_fold == ensemble_nfold:
             break
     score_df = pd.concat(scores, sort = False)
     # print (score_df)
-    agg_dict = {}
-    statistic_columns = ['mean', 'median', 'max', 'min', 'std']
-    for c in score_df.columns:
-        agg_dict[c] = statistic_columns
-    avg_score_df = score_df.agg(agg_dict)
-    print (avg_score_df)
-    return models, avg_score_df
+    return models, score_df
 
 # train_data['target'] = list(model_eval(img_model[0], img_model[1], train_data))
 # test_data['target'] = list(model_eval(img_model[0], img_model[1], test_data))
@@ -332,7 +328,14 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
     pd.DataFrame(preds, index = test_data['img_id']).to_csv(tmp_model_dir + "/preds_"+ time_label + ".txt", header = False, sep = '\t')
 
     if not FLAGS.load_zs_model:
-        score_df.to_csv(tmp_model_dir + '/scores.tsv')    
+        agg_dict = {}
+        statistic_columns = ['mean', 'median', 'max', 'min', 'std', 'count']
+        for c in score_df.columns:
+            agg_dict[c] = statistic_columns
+        avg_score_df = score_df.groupby('Epoch').agg(agg_dict)
+        print (avg_score_df)
+        score_df.to_csv(tmp_model_dir + '/scores.tsv')
+        avg_score_df.T.to_csv(tmp_model_dir + '/statistic_scores.tsv')    
         model_name = tmp_model_dir + "imgmodel_" + time_label + ".h5"
         img_model[0].save(model_name)
         for i, model in enumerate(models):
@@ -366,6 +369,9 @@ if __name__ == "__main__":
             predict_flat(img_model, train_data, test_data)
         else:
             round1_class_id = list(set(train_data.class_id.unique()) - set(round2_class_id))
+            if not FLAGS.only_emb:
+                train_data = train_data[train_data.class_id.isin(round2_class_id)]
+                class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
             zs_models, score_df = train_zs_model(train_data, #[train_data.class_id.isin(round2_class_id)], 
                     class_id_emb_attr = class_id_emb_attr, #[class_id_emb_attr.class_id.isin(round2_class_id)], 
                     flags = FLAGS, 
@@ -374,5 +380,6 @@ if __name__ == "__main__":
                     round2_class_id = round2_class_id,
                     img_model = img_model)
             cand_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
-            sub(models = zs_models, train_data = train_data, test_data = test_data, class_id_emb_attr = cand_class_id_emb_attr, \
+            sub(models = zs_models, train_data = train_data, test_data = test_data, 
+                class_id_emb_attr = cand_class_id_emb_attr, \
                 img_model = img_model, score_df = score_df)

@@ -90,6 +90,7 @@ class DEM:
         self.TTA = flags.TTA
         self.flags = flags
         self.neg_aug = flags.neg_aug
+        self.only_emb = flags.only_emb
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -149,7 +150,10 @@ class DEM:
         
         attr_dense = layers.Dense(600, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
-        attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
+        if self.only_emb:
+            attr_word_emb = word_emb
+        else:
+            attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
         attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
                                                                             int(img_flat_len * 2),
                                                                             int(img_flat_len * 1.5), 
@@ -170,13 +174,16 @@ class DEM:
 
     def create_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024):
         attr_input = layers.Input(shape = (50,), name = 'attr')
-        word_emb = layers.Input(shape = (600,), name = 'wv')
+        word_emb = layers.Input(shape = (1200,), name = 'wv')
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
         label = layers.Input(shape = (1,), name = 'label')
         
-        attr_dense = layers.Dense(600, use_bias = True, kernel_initializer=kernel_initializer, 
+        attr_dense = layers.Dense(1200, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
-        attr_word_emb = word_emb #layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
+        if self.only_emb:
+            attr_word_emb = word_emb
+        else:
+            attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
         attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
                                                                             int(img_flat_len * 2),
                                                                             int(img_flat_len * 1.5), 
@@ -339,9 +346,9 @@ class DEM:
         elif self.model_type == 'GCN':
             return [create_gcn_data(df, self.class_to_id), extract_array_from_series(df['target'])]
         elif self.model_type == 'DEM_BC':
-            return create_dem_bc_data(df, neg_aug)
+            return create_dem_bc_data(df, neg_aug, self.only_emb)
 
-    def train(self, train_part_df, validate_part_df):
+    def train(self, train_part_df, validate_part_df, num_fold = 0):
         """
         Keras Training
         """
@@ -378,7 +385,10 @@ class DEM:
         else:
             h = self.model.fit(DNN_Train_Data,  validation_data = (DNN_validate_Data, None),
                         epochs=self.epochs, batch_size = self.batch_size, shuffle=True, verbose = self.verbose, callbacks=callbacks)
-        self.scores.append(pd.DataFrame(scores_list[-1:], columns = self.class_id_dict.keys()))
+        score_df = pd.DataFrame(scores_list, columns = self.class_id_dict.keys())
+        score_df.index.name = 'Epoch'
+        score_df['Fold'] = num_fold
+        self.scores.append(score_df)
         return self.model
 
     def predict(self, test_part, batch_size = 1024, verbose=2):
