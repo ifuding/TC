@@ -91,6 +91,7 @@ class DEM:
         self.flags = flags
         self.neg_aug = flags.neg_aug
         self.only_emb = flags.only_emb
+        self.c2c_neg_cnt = flags.c2c_neg_cnt
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -346,7 +347,9 @@ class DEM:
         elif self.model_type == 'GCN':
             return [create_gcn_data(df, self.class_to_id), extract_array_from_series(df['target'])]
         elif self.model_type == 'DEM_BC':
-            return create_dem_bc_data(df, neg_aug, self.only_emb)
+            return create_dem_bc_data(df, neg_aug, self.only_emb, 
+                class_id_emb_attr = self.class_id_emb_attr[self.class_id_emb_attr.class_id.isin(self.seen_class)],
+                c2c_neg_cnt = self.c2c_neg_cnt)
 
     def train(self, train_part_df, validate_part_df, num_fold = 0):
         """

@@ -60,6 +60,7 @@ default_parser.add_argument("--zoom_range", type=float, default=0.)
 default_parser.add_argument("--horizontal_flip", type=str2bool.__func__, default=False)
 default_parser.add_argument("--TTA", type=int, default=None)
 default_parser.add_argument("--neg_aug", type=int, default=None)
+default_parser.add_argument("--c2c_neg_cnt", type=int, default=None)
 ## ENAS
 default_parser.add_argument("--enas", type=str2bool.__func__, default=False)
 default_parser.add_argument("--enas_fold", type=int, default=None)
@@ -107,7 +108,7 @@ def load_data():
     gc.collect()
     train_data = train_data.merge(class_id_emb_attr, how = 'left', on = 'class_id')
     if FLAGS.debug:
-        train_data = train_data.iloc[-200:]
+        train_data = train_data.iloc[-2000:]
         test_data = test_data.iloc[-10:]
 
     # glove_emb = read_class_emb(path + '/DatasetB/class_wordembeddings.txt')
@@ -187,6 +188,7 @@ def train_img_classifier(train_data, flags):
     category_dict = dict((category[i], i) for i in range(category.shape[0]))
     if flags.load_img_model:
         img_model = DenseNet(scores = scores, cat_max = flags.cat_max, flags = flags, model_type = model_type).model
+        print (model_path)
         model_file_name = glob.glob(model_path + '/imgmodel_*.h5')[0]
         print ('Model file name: ', model_file_name)
         img_model.load_weights(model_file_name)
@@ -331,8 +333,10 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
         agg_dict = {}
         statistic_columns = ['mean', 'median', 'max', 'min', 'std', 'count']
         for c in score_df.columns:
+            if c == 'Fold':
+                continue
             agg_dict[c] = statistic_columns
-        avg_score_df = score_df.groupby('Epoch').agg(agg_dict)
+        avg_score_df = score_df.groupby('Epoch').agg(agg_dict).T
         print (avg_score_df)
         score_df.to_csv(tmp_model_dir + '/scores.tsv')
         avg_score_df.T.to_csv(tmp_model_dir + '/statistic_scores.tsv')    

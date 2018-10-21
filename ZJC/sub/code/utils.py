@@ -24,18 +24,42 @@ def create_dem_data(df, only_emb = False):
 def create_gcn_data(df, class_to_id):
     return np.array([class_to_id[c] for c in df['class_id'].values]).astype('int32')
 
-def neg_aug_data(pos_data, train_class_id):
-    pos_len = pos_data[0].shape[0]
-    ind_array = np.array(range(pos_len))
-    perm_ind_array = np.random.permutation(ind_array)
-    perm_label = np.zeros(pos_len)
-    perm_label[train_class_id == train_class_id[perm_ind_array]] = 1
-    perm_img_feature_map = pos_data[0][perm_ind_array] 
-        
-    neg_data = [perm_img_feature_map] + pos_data[1:3] + [perm_label]
+def neg_aug_data(pos_data, train_class_id, class_id_emb_attr = None, c2c_neg_cnt = None, only_emb = False):
+    if c2c_neg_cnt is None:
+        pos_len = pos_data[0].shape[0]
+        ind_array = np.array(range(pos_len))
+    #     rs = np.random.RandomState(seed=420)
+    #     perm_ind_array = rs.permutation(rs.permutation(rs.permutation(rs.permutation(ind_array))))
+        perm_ind_array = np.random.permutation(ind_array)
+        perm_label = np.zeros(pos_len)
+        perm_label[train_class_id == train_class_id[perm_ind_array]] = 1
+        perm_img_feature_map = pos_data[0][perm_ind_array] 
+
+        neg_data = [perm_img_feature_map] + pos_data[1:3] + [perm_label]
+    else:
+        train_class_id_uniq = np.unique(train_class_id)
+        attr_embs = create_dem_data(class_id_emb_attr, only_emb)
+        neg_attrs = []
+        neg_embs = []
+        neg_imgs = []
+        img_origin_ind = np.array(range(train_class_id.shape[0]))
+        for i, class_id in enumerate(list(class_id_emb_attr.class_id)):
+            per_class_attrs,  per_class_embs = attr_embs[0][i], attr_embs[1][i]
+            per_class_neg_imgs = []
+            for have_img_clas_id in train_class_id_uniq:
+                if class_id == have_img_clas_id:
+                    continue
+                imgs_ind = img_origin_ind[train_class_id == have_img_clas_id]
+                per_class_neg_imgs.extend(list(pos_data[0][np.random.choice(imgs_ind, c2c_neg_cnt)]))
+            per_class_neg_len = len(per_class_neg_imgs)
+#             print ('Class_id, neg', class_id, per_class_neg_len)
+            neg_attrs.extend([per_class_attrs] * per_class_neg_len)
+            neg_embs.extend([per_class_embs] * per_class_neg_len)
+            neg_imgs.extend(per_class_neg_imgs)
+        neg_data = [np.array(neg_imgs), np.array(neg_attrs), np.array(neg_embs), np.zeros(len(neg_imgs))]
     return neg_data
         
-def create_dem_bc_data(df, neg_aug = 0, only_emb = False):
+def create_dem_bc_data(df, neg_aug = 0, only_emb = False, class_id_emb_attr = None, c2c_neg_cnt = None):
     """
     """
     train_data = [extract_array_from_series(df['target'])] + create_dem_data(df, only_emb)
@@ -45,7 +69,10 @@ def create_dem_bc_data(df, neg_aug = 0, only_emb = False):
     if neg_aug > 0:
         train_class_id = extract_array_from_series(df['class_id'])
         for i in range(neg_aug):
-            neg_data = neg_aug_data(train_data, train_class_id)
+            neg_data = neg_aug_data(train_data, train_class_id, 
+                                    class_id_emb_attr = class_id_emb_attr, 
+                                    c2c_neg_cnt = c2c_neg_cnt,
+                                    only_emb = only_emb)
             merge_data = [np.r_[merge_data[i], neg_data[i]] for i in range(len(merge_data))]
         print ('DEM BC Data Train Len, Pos, Neg:', train_len, np.sum(merge_data[-1]), np.sum(merge_data[-1] == 0))
         return merge_data
