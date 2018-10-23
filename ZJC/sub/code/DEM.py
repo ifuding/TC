@@ -34,7 +34,7 @@ class AccuracyEvaluation(Callback):
         # print (validation_data)
 #         self.X_val, _, 
         self.y_val = validation_data[2]
-        if model_type == 'DEM_BC':
+        if model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
             self.y_val = validation_data[0]
         self.verbose = verbose
         self.scores = scores
@@ -107,7 +107,10 @@ class DEM:
             self.horizontal_flip = flags.horizontal_flip
             self.model = self.create_dem_aug(img_flat_len = img_flat_len)
         elif model_type == 'DEM_BC':
-            self.model = self.create_dem_bc(img_flat_len = img_flat_len)
+            self.model = self.create_dem_bc(img_flat_len = img_flat_len, only_emb = self.only_emb)
+        elif model_type == 'RES_DEM_BC':
+            self.model = self.create_res_dem_bc(img_flat_len = img_flat_len, only_emb = self.only_emb)
+
         self.class_id_dict = {
 #                              'seen_class': seen_class,
                              'Unseen_class': unseen_class,
@@ -173,7 +176,7 @@ class DEM:
         model.compile(optimizer=Adam(lr=1e-4), loss=None)
         return model
 
-    def create_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024):
+    def create_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
         attr_input = layers.Input(shape = (50,), name = 'attr')
         word_emb = layers.Input(shape = (1200,), name = 'wv')
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
@@ -203,6 +206,53 @@ class DEM:
         attr_img_model = Model(inputs = attr_img_input, outputs = proba, name = 'attr_x_img_model')
         
         out = attr_img_model([attr_word_emb_dense, imag_classifier])
+        
+        bc_loss = K.mean(binary_crossentropy(label, out))
+        model = Model([imag_classifier, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out])
+        model.add_loss(bc_loss)
+        model.compile(optimizer=Adam(lr=1e-4), loss=None)
+        return model
+
+    def create_res_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
+        attr_input = layers.Input(shape = (50,), name = 'attr')
+        word_emb = layers.Input(shape = (1200,), name = 'wv')
+        imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
+        label = layers.Input(shape = (1,), name = 'label')
+        
+        attr_dense = layers.Dense(1200, use_bias = True, kernel_initializer=kernel_initializer, 
+                        kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
+        
+        ini_dem_model = self.create_dem_bc(kernel_initializer = 'he_normal', 
+                                           img_flat_len = img_flat_len, 
+                                           only_emb = True)
+        ini_dem_model.load_weights('./only_emb.h5')
+        ini_dem_model_part = Model(inputs = ini_dem_model.inputs[2], 
+                                   outputs = ini_dem_model.outputs[0])
+        ini_dem_model_part.trainable = False
+        ini_attr_word_emb_dense = ini_dem_model_part([word_emb])
+        
+        if only_emb:
+            attr_word_emb = word_emb
+        else:
+            attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
+        attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
+                                                                            int(img_flat_len * 2),
+                                                                            int(img_flat_len * 1.5), 
+                                                                            int(img_flat_len * 1.25),
+                                                                            int(img_flat_len)
+                                                                            ], \
+                                                activation = 'relu', resnet = False, drop_out_ratio = 0.2)
+        attr_word_emb_dense = layers.Lambda(lambda x: x[0] + x[1])([attr_word_emb_dense, ini_attr_word_emb_dense])
+        
+        attr_x_img = layers.Lambda(lambda x: x[0] * x[1], name = 'attr_x_img')([attr_word_emb_dense, imag_classifier])
+#         attr_x_img = layers.Concatenate(name = 'attr_x_img')([attr_word_emb_dense, imag_classifier])
+    
+        attr_img_input = layers.Input(shape = (img_flat_len,), name = 'attr_img_input')
+#         attr_img_input = layers.Input(shape = (img_flat_len * 2,), name = 'attr_img_input')
+        proba = self.full_connect_layer(attr_img_input, hidden_dim = [1], activation = 'sigmoid')
+        attr_img_model = Model(inputs = attr_img_input, outputs = proba, name = 'attr_x_img_model')
+        
+        out = attr_img_model([attr_x_img])
         
         bc_loss = K.mean(binary_crossentropy(label, out))
         model = Model([imag_classifier, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out])

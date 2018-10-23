@@ -226,12 +226,12 @@ def train_img_classifier(train_data, flags):
 def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len,
                    round1_class_id = None,
                    round2_class_id = None,
-                   img_model = None):
+                   img_model = None,
+                   fold = None,
+                   ensemble_nfold = None):
     print("Over all training size:")
     print(train_data.shape)
 
-    fold = flags.dem_nfold
-    ensemble_nfold = flags.dem_ensemble_nfold
     kf = KFold(n_splits=fold, shuffle=True, random_state = 100)
     num_fold = 0
     models = []
@@ -376,13 +376,26 @@ if __name__ == "__main__":
             if not FLAGS.only_emb:
                 train_data = train_data[train_data.class_id.isin(round2_class_id)]
                 class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
+
+            zs_models, score_df = train_zs_model(train_data[train_data.class_id.isin(round1_class_id)], 
+                    class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round1_class_id)], 
+                    flags = FLAGS, 
+                    img_flat_len = FLAGS.img_flat_len,
+                    round1_class_id = round1_class_id,
+                    round2_class_id = round2_class_id,
+                    img_model = img_model,
+                    fold = 10,
+                    ensemble_nfold = 1)
+
             zs_models, score_df = train_zs_model(train_data, #[train_data.class_id.isin(round2_class_id)], 
                     class_id_emb_attr = class_id_emb_attr, #[class_id_emb_attr.class_id.isin(round2_class_id)], 
                     flags = FLAGS, 
                     img_flat_len = FLAGS.img_flat_len,
                     round1_class_id = round1_class_id,
                     round2_class_id = round2_class_id,
-                    img_model = img_model)
+                    img_model = img_model,
+                    fold = None,
+                    ensemble_nfold = None)
             cand_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
             sub(models = zs_models, train_data = train_data, test_data = test_data, 
                 class_id_emb_attr = cand_class_id_emb_attr, \

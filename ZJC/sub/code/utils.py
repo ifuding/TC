@@ -170,7 +170,7 @@ def find_nearest_class(class_id_emb_attr, eval_df, cand_feature_map, img_feature
         if model_type == 'I2A':
             dis = multi_labels_cross_entropy(extract_array_from_series(class_id_emb_attr['attr'])[:, :50],
                                             attr_preds[i])
-        elif model_type == 'DEM_BC':
+        elif model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
             img = img_feature_map[i]
             pred_data = [cand_feature_map, np.array([img] * class_id_emb_attr.shape[0])]
             dis = 1 - zs_model.predict(pred_data)
@@ -262,7 +262,7 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             cand_class_to_id = [class_to_id[c] for c in cand_class_id_emb_attr.class_id.values]
             cand_feature_map = zs_model.predict(None, steps = 1)[cand_class_to_id]
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
-        elif model_type == 'DEM_BC':
+        elif model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
             zs_model = Model(inputs = model.inputs[1:3], outputs = model.outputs[0])
             cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr, flags.only_emb), verbose = 2)
             zs_model = Model(inputs = model.get_layer('attr_x_img_model').inputs, 
