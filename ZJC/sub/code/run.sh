@@ -11,4 +11,5 @@ python3 main.py \
         --rotation_range 20 --shear_range 0.2 --zoom_range 0.2 --horizontal_flip True \
         --init_filters 128 --growth_rate 32 --reduction 0.5 --lr 1e-3 --init_stride 1 --img_flat_len 1032 --cat_max 365 \
         --load_img_model True --predict_flat False --load_zs_model false --TTA 5 --neg_aug 1 --predict_prob False --enas False \
-        --enas_fold 10 --enas_time 60 --only_emb False --c2c_neg_cnt 2
+        --enas_fold 10 --enas_time 60 --only_emb False --c2c_neg_cnt 2 --train_ft True --ft_model skipgram --ft_size 10 \
+        --ft_threads 12 --ft_iter 1

@@ -70,9 +70,12 @@ class DEM:
             unseen_class = None, class_id_emb_attr = None, img_flat_len = None, 
                     unseen_round1_id = None,
                     unseen_round2_id = None,
-                    img_model = None):
+                    img_model = None,
+                    dem_epochs = None,
+                    only_emb = None
+                    ):
         self.batch_size = flags.dem_batch_size
-        self.epochs = flags.dem_epochs
+        self.epochs = dem_epochs #flags.dem_epochs
         self.patience = flags.dem_patience
         self.scores = scores
         self.model_type = model_type
@@ -90,7 +93,7 @@ class DEM:
         self.TTA = flags.TTA
         self.flags = flags
         self.neg_aug = flags.neg_aug
-        self.only_emb = flags.only_emb
+        self.only_emb = only_emb #flags.only_emb
         self.c2c_neg_cnt = flags.c2c_neg_cnt
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
@@ -192,12 +195,12 @@ class DEM:
                                                                             int(img_flat_len * 2),
                                                                             int(img_flat_len * 1.5), 
                                                                             int(img_flat_len * 1.25), 
-#                                                                             int(img_flat_len * 1.125),
+                                                                            int(img_flat_len),
 #                                                                             int(img_flat_len * 1.0625)
                                                                             ], \
                                                 activation = 'relu', resnet = False, drop_out_ratio = 0.2)
-        attr_word_emb_dense = self.full_connect_layer(attr_word_emb_dense, hidden_dim = [img_flat_len], 
-                                                activation = 'relu')
+        # attr_word_emb_dense = self.full_connect_layer(attr_word_emb_dense, hidden_dim = [img_flat_len], 
+        #                                         activation = 'relu')
         
         attr_img_input = [layers.Input(shape = (img_flat_len,), name = 'img_from_attr'), 
                           layers.Input(shape = (img_flat_len,), name = 'img2')]
@@ -396,7 +399,7 @@ class DEM:
             return [preprocess_img(df['img'])] + create_dem_data(df)
         elif self.model_type == 'GCN':
             return [create_gcn_data(df, self.class_to_id), extract_array_from_series(df['target'])]
-        elif self.model_type == 'DEM_BC':
+        elif self.model_type == 'DEM_BC' or self.model_type == 'RES_DEM_BC':
             return create_dem_bc_data(df, neg_aug, self.only_emb, 
                 class_id_emb_attr = self.class_id_emb_attr[self.class_id_emb_attr.class_id.isin(self.seen_class)],
                 c2c_neg_cnt = self.c2c_neg_cnt)
