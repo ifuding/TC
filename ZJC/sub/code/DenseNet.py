@@ -47,7 +47,8 @@ class DenseNet:
                 init_filters = flags.init_filters,
                 reduction = flags.reduction,
                 growth_rate = flags.growth_rate,
-                init_stride = flags.init_stride)
+                init_stride = flags.init_stride,
+                img_input_shape = (flags.pixel, flags.pixel, 3))
 
     def dense_block(self, x, blocks, name, 
             weight_decay = 1e-4, 

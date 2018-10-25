@@ -7,7 +7,7 @@ import glob
 import gc
 import argparse
 import sys
-import autokeras as ak
+# import autokeras as ak
 
 @staticmethod
 def str2bool(v):
@@ -45,6 +45,7 @@ default_parser.add_argument("--init_stride", type=int, default=None)
 default_parser.add_argument("--cat_max", type=int, default=None)
 default_parser.add_argument("--aug_data", type=str2bool.__func__, default=True)
 default_parser.add_argument("--kernel_initializer", type=str, default=None)
+default_parser.add_argument("--pixel", type=int, default=None)
 ## DEM args
 default_parser.add_argument("--dem_nfold", type=int, default=None)
 default_parser.add_argument("--dem_ensemble_nfold", type=int, default=None)
@@ -65,6 +66,12 @@ default_parser.add_argument("--c2c_neg_cnt", type=int, default=None)
 default_parser.add_argument("--enas", type=str2bool.__func__, default=False)
 default_parser.add_argument("--enas_fold", type=int, default=None)
 default_parser.add_argument("--enas_time", type=int, default=None)
+## FastText
+default_parser.add_argument("--train_ft", type=str2bool.__func__, default=False)
+default_parser.add_argument("--ft_model", type=str, default='skipgram')
+default_parser.add_argument("--ft_size", type=int, default=None)
+default_parser.add_argument("--ft_threads", type=int, default=None)
+default_parser.add_argument("--ft_iter", type=int, default=None)
 
 # FLAGS = flags.FLAGS
 (FLAGS, unknown) = default_parser.parse_known_args(sys.argv)
@@ -81,6 +88,9 @@ import shutil
 import os
 from tqdm import tqdm, tqdm_notebook
 tqdm.pandas(tqdm_notebook)
+import gensim
+import os
+from gensim.models.wrappers.fasttext import FastText as FT_wrapper
 
 def read_class_emb(class_emb_path):
     class_emb = pd.read_csv(class_emb_path, index_col = 0, sep = ' ', header = None)
@@ -90,25 +100,27 @@ def read_class_emb(class_emb_path):
 
 def load_data():
     print("\nData Load Stage")
-    with open(path + 'round2_class_id_emb_attr_add_golve_crawl_42B.pkl', 'rb') as handle:
+    with open(path + 'round2B_class_id_emb_attr_ft1000.pkl', 'rb') as handle:
         class_id_emb_attr = pickle.load(handle)
-        class_id_emb_attr.drop(columns = ['emb_glove', 'emb_fasttext', 'emb_glove_crawl', 'emb_glove_crawl_42B'])
-    with open(path + '/round1_train_img_part0.pkl', 'rb') as handle:
+        # class_id_emb_attr.drop(columns = ['emb_glove', 'emb_fasttext', 'emb_glove_crawl', 'emb_glove_crawl_42B'])
+    with open(path + '/round1A_train_img.pkl', 'rb') as handle:
         round1_train_img_part0 = pickle.load(handle)
-    with open(path + '/round1_train_img_part1.pkl', 'rb') as handle:
+    with open(path + '/round1B_train_img.pkl', 'rb') as handle:
         round1_train_img_part1 = pickle.load(handle)
-    with open(path + '/round2_train_img.pkl', 'rb') as handle:
+    with open(path + '/round2A_train_img.pkl', 'rb') as handle:
         round2_train_img = pickle.load(handle)
-    with open(path + '/round2_test_img.pkl', 'rb') as handle:
+    with open(path + '/round2B_train_img.pkl', 'rb') as handle:
+        round2B_train_img = pickle.load(handle)
+    with open(path + '/round2B_test_img.pkl', 'rb') as handle:
         test_data = pickle.load(handle)
-    round2_class_id = ['ZJL' + str(i) for i in range(296, 501)]
+    round2_class_id = ['ZJL' + str(i) for i in range(296, 521)]
     round2_train_class_id = round2_train_img.class_id.unique()
-    train_data = pd.concat([round1_train_img_part0, round1_train_img_part1, round2_train_img], axis = 0, sort = False)
-    del round1_train_img_part0, round1_train_img_part1, round2_train_img
+    train_data = pd.concat([round1_train_img_part0, round1_train_img_part1, round2_train_img, round2B_train_img], axis = 0, sort = False)
+    del round1_train_img_part0, round1_train_img_part1, round2_train_img, round2B_train_img
     gc.collect()
     train_data = train_data.merge(class_id_emb_attr, how = 'left', on = 'class_id')
     if FLAGS.debug:
-        train_data = train_data.iloc[-2000:]
+        train_data = train_data.iloc[-200:]
         test_data = test_data.iloc[-10:]
 
     # glove_emb = read_class_emb(path + '/DatasetB/class_wordembeddings.txt')
@@ -228,14 +240,17 @@ def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len,
                    round2_class_id = None,
                    img_model = None,
                    fold = None,
-                   ensemble_nfold = None):
+                   ensemble_nfold = None,
+                   dem_epochs = None,
+                   only_emb = None,
+                   model_type = None):
     print("Over all training size:")
     print(train_data.shape)
 
     kf = KFold(n_splits=fold, shuffle=True, random_state = 100)
     num_fold = 0
     models = []
-    model_type = FLAGS.zs_model_type
+    # model_type = FLAGS.zs_model_type
     scores = []
     classes = train_data.class_id.unique()
     if flags.load_zs_model:
@@ -246,7 +261,9 @@ def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len,
                     img_flat_len = img_flat_len, 
                     unseen_class = classes,
                     class_id_emb_attr = class_id_emb_attr,
-                    img_model = img_model).model
+                    img_model = img_model,
+                    dem_epochs = dem_epochs,
+                    only_emb = only_emb).model
             zs_model.load_weights(m_file)
             models.append((zs_model, model_type))
         return models, None
@@ -273,7 +290,9 @@ def train_zs_model(train_data, class_id_emb_attr, flags, img_flat_len,
                     class_id_emb_attr = class_id_emb_attr,
                     unseen_round1_id = unseen_round1_id,
                     unseen_round2_id = unseen_round2_id,
-                    img_model = img_model)
+                    img_model = img_model,
+                    dem_epochs = dem_epochs,
+                    only_emb = only_emb)
         if num_fold == 0:
             print (zs_model.model.summary())
         zs_model.train(train_part_df, validate_part_df, num_fold)
@@ -337,9 +356,9 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
                 continue
             agg_dict[c] = statistic_columns
         avg_score_df = score_df.groupby('Epoch').agg(agg_dict).T
-        print (avg_score_df)
+        print (avg_score_df.T)
         score_df.to_csv(tmp_model_dir + '/scores.tsv')
-        avg_score_df.T.to_csv(tmp_model_dir + '/statistic_scores.tsv')    
+        avg_score_df.to_csv(tmp_model_dir + '/statistic_scores.tsv')    
         model_name = tmp_model_dir + "imgmodel_" + time_label + ".h5"
         img_model[0].save(model_name)
         for i, model in enumerate(models):
@@ -354,9 +373,36 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
             os.remove(dst_file)
         shutil.move(os.path.join(tmp_model_dir, fileName), FLAGS.output_model_path)
 
-# sub(models = zs_models, train_data = train_data, test_data = test_data, class_id_emb_attr = class_id_emb_attr)
+def train_ft():
+    # Set FastText home to the path to the FastText executable
+    ft_home = './fasttext'
+    os.chmod(ft_home, 0o775)
+    train_file = path + '/wiki_corpus'
+    # train the model
+    model_wrapper = FT_wrapper.train(ft_home, 
+        train_file, 
+        size = FLAGS.ft_size, 
+        model = FLAGS.ft_model,
+        threads = FLAGS.ft_threads,
+        iter = FLAGS.ft_iter)
+
+    print(model_wrapper)
+    tmp_model_dir = "./model_sub/"
+    if not os.path.isdir(tmp_model_dir):
+        os.makedirs(tmp_model_dir, exist_ok=True)
+    model_wrapper.save(tmp_model_dir + 'ft')
+    if not os.path.isdir(FLAGS.output_model_path):
+        os.makedirs(FLAGS.output_model_path, exist_ok=True)
+    for fileName in os.listdir(tmp_model_dir):
+        dst_file = os.path.join(FLAGS.output_model_path, fileName)
+        if os.path.exists(dst_file):
+            os.remove(dst_file)
+        shutil.move(os.path.join(tmp_model_dir, fileName), FLAGS.output_model_path)
 
 if __name__ == "__main__":
+    if FLAGS.train_ft:
+        train_ft()
+        sys.exit(0)
     train_data, test_data, class_id_emb_attr, round2_class_id, round2_train_class_id = load_data()
     if FLAGS.enas:
         ENAS(train_data)
@@ -373,20 +419,23 @@ if __name__ == "__main__":
             predict_flat(img_model, train_data, test_data)
         else:
             round1_class_id = list(set(train_data.class_id.unique()) - set(round2_class_id))
+            if FLAGS.zs_model_type == 'RES_DEM_BC':
+                zs_models, score_df = train_zs_model(train_data[train_data.class_id.isin(round1_class_id)], 
+                        class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round1_class_id)], 
+                        flags = FLAGS, 
+                        img_flat_len = FLAGS.img_flat_len,
+                        round1_class_id = round1_class_id,
+                        round2_class_id = round2_class_id,
+                        img_model = img_model,
+                        fold = 10,
+                        ensemble_nfold = 1,
+                        dem_epochs = 2,
+                        only_emb = True,
+                        model_type = 'DEM_BC')
+                zs_models[0].save('./only_emb.h5')
             if not FLAGS.only_emb:
                 train_data = train_data[train_data.class_id.isin(round2_class_id)]
                 class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
-
-            zs_models, score_df = train_zs_model(train_data[train_data.class_id.isin(round1_class_id)], 
-                    class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round1_class_id)], 
-                    flags = FLAGS, 
-                    img_flat_len = FLAGS.img_flat_len,
-                    round1_class_id = round1_class_id,
-                    round2_class_id = round2_class_id,
-                    img_model = img_model,
-                    fold = 10,
-                    ensemble_nfold = 1)
-
             zs_models, score_df = train_zs_model(train_data, #[train_data.class_id.isin(round2_class_id)], 
                     class_id_emb_attr = class_id_emb_attr, #[class_id_emb_attr.class_id.isin(round2_class_id)], 
                     flags = FLAGS, 
@@ -394,8 +443,11 @@ if __name__ == "__main__":
                     round1_class_id = round1_class_id,
                     round2_class_id = round2_class_id,
                     img_model = img_model,
-                    fold = None,
-                    ensemble_nfold = None)
+                    fold = FLAGS.dem_nfold,
+                    ensemble_nfold = FLAGS.dem_ensemble_nfold,
+                    dem_epochs = FLAGS.dem_epochs,
+                    only_emb = FLAGS.only_emb,
+                    model_type = FLAGS.zs_model_type)
             cand_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
             sub(models = zs_models, train_data = train_data, test_data = test_data, 
                 class_id_emb_attr = cand_class_id_emb_attr, \

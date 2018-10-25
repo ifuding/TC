@@ -181,11 +181,11 @@ class DEM:
 
     def create_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
         attr_input = layers.Input(shape = (50,), name = 'attr')
-        word_emb = layers.Input(shape = (1200,), name = 'wv')
+        word_emb = layers.Input(shape = (1000,), name = 'wv')
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
         label = layers.Input(shape = (1,), name = 'label')
         
-        attr_dense = layers.Dense(1200, use_bias = True, kernel_initializer=kernel_initializer, 
+        attr_dense = layers.Dense(1000, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         if self.only_emb:
             attr_word_emb = word_emb
