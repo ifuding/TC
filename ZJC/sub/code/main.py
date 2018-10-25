@@ -54,6 +54,9 @@ default_parser.add_argument("--dem_batch_size", type=int, default=None)
 default_parser.add_argument("--dem_patience", type=int, default=None)
 default_parser.add_argument("--img_flat_len", type=int, default=None)
 default_parser.add_argument("--zs_model_type", type=str, default=None)
+default_parser.add_argument("--wv_len", type=int, default=None)
+default_parser.add_argument("--res_dem_epochs", type=int, default=None)
+default_parser.add_argument("--res_dem_nfold", type=int, default=None)
 ## Data Augmentation args
 default_parser.add_argument("--rotation_range", type=int, default=0)
 default_parser.add_argument("--shear_range", type=float, default=0.)
@@ -100,7 +103,7 @@ def read_class_emb(class_emb_path):
 
 def load_data():
     print("\nData Load Stage")
-    with open(path + 'round2B_class_id_emb_attr_ft1000.pkl', 'rb') as handle:
+    with open(path + 'round2_class_id_emb_attr_ft900.pkl', 'rb') as handle:
         class_id_emb_attr = pickle.load(handle)
         # class_id_emb_attr.drop(columns = ['emb_glove', 'emb_fasttext', 'emb_glove_crawl', 'emb_glove_crawl_42B'])
     with open(path + '/round1A_train_img.pkl', 'rb') as handle:
@@ -109,18 +112,20 @@ def load_data():
         round1_train_img_part1 = pickle.load(handle)
     with open(path + '/round2A_train_img.pkl', 'rb') as handle:
         round2_train_img = pickle.load(handle)
-    with open(path + '/round2B_train_img.pkl', 'rb') as handle:
-        round2B_train_img = pickle.load(handle)
-    with open(path + '/round2B_test_img.pkl', 'rb') as handle:
+    # with open(path + '/round2B_train_img.pkl', 'rb') as handle:
+    #     round2B_train_img = pickle.load(handle)
+    with open(path + '/round2A_test_img.pkl', 'rb') as handle:
         test_data = pickle.load(handle)
     round2_class_id = ['ZJL' + str(i) for i in range(296, 521)]
     round2_train_class_id = round2_train_img.class_id.unique()
-    train_data = pd.concat([round1_train_img_part0, round1_train_img_part1, round2_train_img, round2B_train_img], axis = 0, sort = False)
-    del round1_train_img_part0, round1_train_img_part1, round2_train_img, round2B_train_img
+    train_data = pd.concat([round1_train_img_part0, round1_train_img_part1, round2_train_img, 
+                # round2B_train_img,
+                ], axis = 0, sort = False)
+    del round1_train_img_part0, round1_train_img_part1, round2_train_img #, round2B_train_img
     gc.collect()
     train_data = train_data.merge(class_id_emb_attr, how = 'left', on = 'class_id')
     if FLAGS.debug:
-        train_data = train_data.iloc[-200:]
+        train_data = pd.concat([train_data.iloc[:1000], train_data.iloc[-1000:]])
         test_data = test_data.iloc[-10:]
 
     # glove_emb = read_class_emb(path + '/DatasetB/class_wordembeddings.txt')
@@ -427,12 +432,12 @@ if __name__ == "__main__":
                         round1_class_id = round1_class_id,
                         round2_class_id = round2_class_id,
                         img_model = img_model,
-                        fold = 10,
+                        fold = FLAGS.res_dem_nfold,
                         ensemble_nfold = 1,
-                        dem_epochs = 2,
+                        dem_epochs = FLAGS.res_dem_epochs,
                         only_emb = True,
                         model_type = 'DEM_BC')
-                zs_models[0].save('./only_emb.h5')
+                zs_models[0][0].save('./only_emb.h5')
             if not FLAGS.only_emb:
                 train_data = train_data[train_data.class_id.isin(round2_class_id)]
                 class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]

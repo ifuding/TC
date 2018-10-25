@@ -27,7 +27,7 @@ class AccuracyEvaluation(Callback):
             scores = [], cand_class_id_emb_attr = None, eval_df = None, threshold = None, \
                  seen_class = None, unseen_class = None, gamma = None, model_type = None, 
                  class_id_dict = None, class_to_id = None, TTA = None, img_model = None,
-                 flags = None):
+                 flags = None, only_emb = None):
         super(AccuracyEvaluation, self).__init__()
 
         self.interval = interval
@@ -48,6 +48,7 @@ class AccuracyEvaluation(Callback):
         self.TTA = TTA
         self.img_model = img_model
         self.flags = flags
+        self.only_emb = only_emb
 #         self.class_id_dict['All'] = self.eval_df.class_id.unique()
         
     def on_epoch_end(self, epoch, logs={}):
@@ -60,7 +61,8 @@ class AccuracyEvaluation(Callback):
                 class_to_id = self.class_to_id,
                 TTA = self.TTA,
                 img_model = self.img_model,
-                flags = self.flags)
+                flags = self.flags,
+                only_emb = self.only_emb)
             self.scores.append(epoch_scores)
 
 class DEM:
@@ -95,6 +97,7 @@ class DEM:
         self.neg_aug = flags.neg_aug
         self.only_emb = only_emb #flags.only_emb
         self.c2c_neg_cnt = flags.c2c_neg_cnt
+        self.wv_len = flags.wv_len
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -181,11 +184,11 @@ class DEM:
 
     def create_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
         attr_input = layers.Input(shape = (50,), name = 'attr')
-        word_emb = layers.Input(shape = (1000,), name = 'wv')
+        word_emb = layers.Input(shape = (self.wv_len,), name = 'wv')
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
         label = layers.Input(shape = (1,), name = 'label')
         
-        attr_dense = layers.Dense(1000, use_bias = True, kernel_initializer=kernel_initializer, 
+        attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         if self.only_emb:
             attr_word_emb = word_emb
@@ -218,11 +221,11 @@ class DEM:
 
     def create_res_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
         attr_input = layers.Input(shape = (50,), name = 'attr')
-        word_emb = layers.Input(shape = (1200,), name = 'wv')
+        word_emb = layers.Input(shape = (self.wv_len,), name = 'wv')
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
         label = layers.Input(shape = (1,), name = 'label')
         
-        attr_dense = layers.Dense(1200, use_bias = True, kernel_initializer=kernel_initializer, 
+        attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         
         ini_dem_model = self.create_dem_bc(kernel_initializer = 'he_normal', 
@@ -424,7 +427,8 @@ class DEM:
                             scores = scores_list,
                             TTA = self.TTA,
                             img_model = self.img_flat_model,
-                            flags = self.flags)
+                            flags = self.flags,
+                            only_emb = self.only_emb)
         ]
         if self.model_type == 'DEM_AUG':
             datagen = MixedImageDataGenerator(

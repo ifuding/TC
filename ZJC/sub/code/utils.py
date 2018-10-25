@@ -237,7 +237,7 @@ def tta_pred(TTA = None, img_model = None, batch_size = 128, eval_df = None,
 
 def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_feature_map = None, 
                 class_id_dict = None, class_to_id = None, verbose = 2, img_model = None, TTA = None,
-                flags = None):
+                flags = None, only_emb = None):
     """
     """
     if model_type == 'DenseNet':
@@ -264,7 +264,7 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
         elif model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
             zs_model = Model(inputs = model.inputs[1:3], outputs = model.outputs[0])
-            cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr, flags.only_emb), verbose = 2)
+            cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr, only_emb), verbose = 2)
             zs_model = Model(inputs = model.get_layer('attr_x_img_model').inputs, 
                             outputs = model.get_layer('attr_x_img_model').outputs)
             pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map = cand_feature_map, img_feature_map = img_feature_map,
