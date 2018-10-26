@@ -172,7 +172,7 @@ def find_nearest_class(class_id_emb_attr, eval_df, cand_feature_map, img_feature
                                             attr_preds[i])
         elif model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
             img = img_feature_map[i]
-            pred_data = [cand_feature_map, np.array([img] * class_id_emb_attr.shape[0])]
+            pred_data = cand_feature_map * img
             dis = 1 - zs_model.predict(pred_data)
         else:
             img = img_feature_map[i]

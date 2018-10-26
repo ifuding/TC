@@ -134,7 +134,7 @@ class DEM:
         attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
                                                                             int(img_flat_len * 2),
                                                                             int(img_flat_len * 1.5), 
-                                                                            int(img_flat_len * 1.25), 
+                                                                            int(img_flat_len * 1.25),
 #                                                                             int(img_flat_len * 1.125),
 #                                                                             int(img_flat_len * 1.0625)
                                                                             ], \
@@ -190,7 +190,7 @@ class DEM:
         
         attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
                         kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
-        if self.only_emb:
+        if only_emb:
             attr_word_emb = word_emb
         else:
             attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
@@ -201,14 +201,14 @@ class DEM:
                                                                             int(img_flat_len),
 #                                                                             int(img_flat_len * 1.0625)
                                                                             ], \
-                                                activation = 'relu', resnet = False, drop_out_ratio = 0.2)
-        # attr_word_emb_dense = self.full_connect_layer(attr_word_emb_dense, hidden_dim = [img_flat_len], 
-        #                                         activation = 'relu')
-        
-        attr_img_input = [layers.Input(shape = (img_flat_len,), name = 'img_from_attr'), 
-                          layers.Input(shape = (img_flat_len,), name = 'img2')]
-        attr_x_img = layers.Lambda(lambda x: x[0] * x[1], name = 'attr_x_img')(attr_img_input)
-        proba = self.full_connect_layer(attr_x_img, hidden_dim = [1], activation = 'sigmoid')
+                                    activation = 'relu', resnet = False, drop_out_ratio = 0.2, name = 'block0')
+                                    
+        attr_x_img = layers.Lambda(lambda x: x[0] * x[1], name = 'attr_x_img')([attr_word_emb_dense, imag_classifier])
+#         attr_x_img = layers.Concatenate(name = 'attr_x_img')([attr_word_emb_dense, imag_classifier])
+    
+        attr_img_input = layers.Input(shape = (img_flat_len,), name = 'attr_img_input')
+#         attr_img_input = layers.Input(shape = (img_flat_len * 2,), name = 'attr_img_input')
+        proba = self.full_connect_layer(attr_img_input, hidden_dim = [1], activation = 'sigmoid')
         attr_img_model = Model(inputs = attr_img_input, outputs = proba, name = 'attr_x_img_model')
         
         out = attr_img_model([attr_word_emb_dense, imag_classifier])
@@ -377,20 +377,20 @@ class DEM:
         return model
 
     def full_connect_layer(self, input, hidden_dim, activation, resnet = False, adj_graphs = None, 
-                        drop_out_ratio = None, kernel_initializer = 'he_normal'):
+                        drop_out_ratio = None, kernel_initializer = 'he_normal', name = 'block0'):
         full_connect = input
         for i, hn in enumerate(hidden_dim):
             fc_in = full_connect
             if drop_out_ratio is not None:
-                full_connect = layers.Dropout(drop_out_ratio)(full_connect)
-            full_connect = layers.BatchNormalization(epsilon=1.001e-5)(full_connect)
+                full_connect = layers.Dropout(drop_out_ratio, name = name + '_drop_' + str(i))(full_connect)
+            full_connect = layers.BatchNormalization(epsilon=1.001e-5, name = name + '_bn_' + str(i))(full_connect)
             full_connect = layers.Dense(hn, kernel_initializer=kernel_initializer, kernel_regularizer = l2(1e-4), 
-                    activation = None)(full_connect)
+                    activation = None, name = name + '_dense_' + str(i))(full_connect)
             if adj_graphs is not None:
-                full_connect = layers.Lambda(lambda x: K.dot(x[1], x[0]))([full_connect, adj_graphs])
-            full_connect = layers.Activation(activation)(full_connect)
+                full_connect = layers.Lambda(lambda x: K.dot(x[1], x[0]), name = name + '_adjdot_' + str(i))([full_connect, adj_graphs])
+            full_connect = layers.Activation(activation, name = name + '_act_' + str(i))(full_connect)
             if resnet:
-                full_connect = layers.Concatenate()([fc_in, full_connect])
+                full_connect = layers.Concatenate(name = name + '_conca_' + str(i))([fc_in, full_connect])
         return full_connect
 
     def DNN_DataSet(self, df, neg_aug = 0):
