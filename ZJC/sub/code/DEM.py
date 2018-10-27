@@ -211,7 +211,7 @@ class DEM:
         proba = self.full_connect_layer(attr_img_input, hidden_dim = [1], activation = 'sigmoid')
         attr_img_model = Model(inputs = attr_img_input, outputs = proba, name = 'attr_x_img_model')
         
-        out = attr_img_model([attr_word_emb_dense, imag_classifier])
+        out = attr_img_model([attr_x_img])
         
         bc_loss = K.mean(binary_crossentropy(label, out))
         model = Model([imag_classifier, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out])

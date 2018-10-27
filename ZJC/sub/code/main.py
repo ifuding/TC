@@ -75,6 +75,9 @@ default_parser.add_argument("--ft_model", type=str, default='skipgram')
 default_parser.add_argument("--ft_size", type=int, default=None)
 default_parser.add_argument("--ft_threads", type=int, default=None)
 default_parser.add_argument("--ft_iter", type=int, default=None)
+default_parser.add_argument("--ft_verbose", type=int, default=None)
+default_parser.add_argument("--ft_lrUpdateRate", type=int, default=None)
+
 
 # FLAGS = flags.FLAGS
 (FLAGS, unknown) = default_parser.parse_known_args(sys.argv)
@@ -93,7 +96,8 @@ from tqdm import tqdm, tqdm_notebook
 tqdm.pandas(tqdm_notebook)
 import gensim
 import os
-from gensim.models.wrappers.fasttext import FastText as FT_wrapper
+from gensim.models.wrappers import FastText
+import tempfile
 
 def read_class_emb(class_emb_path):
     class_emb = pd.read_csv(class_emb_path, index_col = 0, sep = ' ', header = None)
@@ -103,7 +107,7 @@ def read_class_emb(class_emb_path):
 
 def load_data():
     print("\nData Load Stage")
-    with open(path + 'round2_class_id_emb_attr_ft900.pkl', 'rb') as handle:
+    with open(path + 'round2_class_id_emb_attr.pkl', 'rb') as handle:
         class_id_emb_attr = pickle.load(handle)
         # class_id_emb_attr.drop(columns = ['emb_glove', 'emb_fasttext', 'emb_glove_crawl', 'emb_glove_crawl_42B'])
     with open(path + '/round1A_train_img.pkl', 'rb') as handle:
@@ -112,20 +116,28 @@ def load_data():
         round1_train_img_part1 = pickle.load(handle)
     with open(path + '/round2A_train_img.pkl', 'rb') as handle:
         round2_train_img = pickle.load(handle)
-    # with open(path + '/round2B_train_img.pkl', 'rb') as handle:
-    #     round2B_train_img = pickle.load(handle)
-    with open(path + '/round2A_test_img.pkl', 'rb') as handle:
+    with open(path + '/round2B_train_img.pkl', 'rb') as handle:
+        round2B_train_img = pickle.load(handle)
+    with open(path + '/round2B_test_img.pkl', 'rb') as handle:
         test_data = pickle.load(handle)
+    with open(path + '/train_data_img_flat.pkl', 'rb') as handle:
+        train_img_flat = pickle.load(handle)
+    with open(path + '/test_data_img_flat.pkl', 'rb') as handle:
+        test_img_flat = pickle.load(handle)
     round2_class_id = ['ZJL' + str(i) for i in range(296, 521)]
     round2_train_class_id = round2_train_img.class_id.unique()
     train_data = pd.concat([round1_train_img_part0, round1_train_img_part1, round2_train_img, 
-                # round2B_train_img,
+                round2B_train_img,
                 ], axis = 0, sort = False)
-    del round1_train_img_part0, round1_train_img_part1, round2_train_img #, round2B_train_img
+    train_data['target'] = list(train_img_flat)
+    test_data['target'] = list(test_img_flat)
+    del round1_train_img_part0, round1_train_img_part1, round2_train_img , \
+                round2B_train_img \
+                , train_img_flat, test_img_flat
     gc.collect()
     train_data = train_data.merge(class_id_emb_attr, how = 'left', on = 'class_id')
     if FLAGS.debug:
-        train_data = pd.concat([train_data.iloc[:1000], train_data.iloc[-1000:]])
+        train_data = pd.concat([train_data.iloc[:400], train_data.iloc[-200:]])
         test_data = test_data.iloc[-10:]
 
     # glove_emb = read_class_emb(path + '/DatasetB/class_wordembeddings.txt')
@@ -318,13 +330,13 @@ def predict_flat(img_model, train_data, test_data):
     tmp_model_dir = "./model_sub/"
     if not os.path.isdir(tmp_model_dir):
         os.makedirs(tmp_model_dir, exist_ok=True)
-    with open(tmp_model_dir + '/train_data_img_flat_' + time_label + '.pickle', 'wb') as handle:
+    with open(tmp_model_dir + '/train_data_img_flat_' + time_label + '.pkl', 'wb') as handle:
         pickle.dump(extract_array_from_series(train_data['target']), handle)
-    with open(tmp_model_dir + '/train_data_pred_img_class_' + time_label + '.pickle', 'wb') as handle:
+    with open(tmp_model_dir + '/train_data_pred_img_class_' + time_label + '.pkl', 'wb') as handle:
         pickle.dump(extract_array_from_series(train_data['pred_img_class']), handle)
-    with open(tmp_model_dir + '/test_data_img_flat_' + time_label + '.pickle', 'wb') as handle:
+    with open(tmp_model_dir + '/test_data_img_flat_' + time_label + '.pkl', 'wb') as handle:
         pickle.dump(extract_array_from_series(test_data['target']), handle)
-    with open(tmp_model_dir + '/test_data_pred_img_class_' + time_label + '.pickle', 'wb') as handle:
+    with open(tmp_model_dir + '/test_data_pred_img_class_' + time_label + '.pkl', 'wb') as handle:
         pickle.dump(extract_array_from_series(test_data['pred_img_class']), handle)
 
     if not os.path.isdir(FLAGS.output_model_path):
@@ -378,27 +390,72 @@ def sub(models, train_data, test_data, class_id_emb_attr, img_model, score_df):
             os.remove(dst_file)
         shutil.move(os.path.join(tmp_model_dir, fileName), FLAGS.output_model_path)
 
+class FastTextAddArgs(FastText):
+    """
+    """
+    @classmethod
+    def train(cls, ft_path, corpus_file, output_file=None, model='cbow', size=100, alpha=0.025, window=5, min_count=5,
+              word_ngrams=1, loss='ns', sample=1e-3, negative=5, iter=5, min_n=3, max_n=6, sorted_vocab=1, threads=12,
+             verbose = 2, lrUpdateRate = 100):
+        """
+        """
+        ft_path = ft_path
+        output_file = output_file or os.path.join('./model_sub/')
+        ft_args = {
+            'input': corpus_file,
+            'output': output_file,
+            'lr': alpha,
+            'dim': size,
+            'ws': window,
+            'epoch': iter,
+            'minCount': min_count,
+            'wordNgrams': word_ngrams,
+            'neg': negative,
+            'loss': loss,
+            'minn': min_n,
+            'maxn': max_n,
+            'thread': threads,
+            't': sample,
+            'verbose': verbose,
+            'lrUpdateRate': lrUpdateRate,
+        }
+        cmd = [ft_path, model]
+        for option, value in ft_args.items():
+            cmd.append("-%s" % option)
+            cmd.append(str(value))
+
+        gensim.utils.check_output(args=cmd)
+        model = cls.load_fasttext_format(output_file)
+        # cls.delete_training_files(output_file)
+        return model, output_file
+
+
 def train_ft():
     # Set FastText home to the path to the FastText executable
+    # model = FastTextAddArgs.load(path + '/LatestCorpus_skipgram_300_10Epoch/ft')
     ft_home = './fasttext'
     os.chmod(ft_home, 0o775)
     train_file = path + '/wiki_corpus'
     # train the model
-    model_wrapper = FT_wrapper.train(ft_home, 
+    model_wrapper, tmp_model_dir = FastTextAddArgs.train(ft_home, 
         train_file, 
         size = FLAGS.ft_size, 
         model = FLAGS.ft_model,
         threads = FLAGS.ft_threads,
-        iter = FLAGS.ft_iter)
+        iter = FLAGS.ft_iter,
+        verbose = FLAGS.ft_verbose,
+        lrUpdateRate = FLAGS.ft_lrUpdateRate)
 
     print(model_wrapper)
-    tmp_model_dir = "./model_sub/"
+    print (tmp_model_dir)
+    # tmp_model_dir = "./model_sub/"
     if not os.path.isdir(tmp_model_dir):
         os.makedirs(tmp_model_dir, exist_ok=True)
-    model_wrapper.save(tmp_model_dir + 'ft')
+    # model_wrapper.save(tmp_model_dir + 'ft.gz')
     if not os.path.isdir(FLAGS.output_model_path):
         os.makedirs(FLAGS.output_model_path, exist_ok=True)
     for fileName in os.listdir(tmp_model_dir):
+        print (fileName)
         dst_file = os.path.join(FLAGS.output_model_path, fileName)
         if os.path.exists(dst_file):
             os.remove(dst_file)
@@ -413,13 +470,13 @@ if __name__ == "__main__":
         ENAS(train_data)
     else:
         img_model = train_img_classifier(train_data, flags = FLAGS)
-        if FLAGS.zs_model_type != 'DEM_AUG':
-            train_preds = model_eval(img_model[0], img_model[1], train_data, verbose = FLAGS.train_verbose, flags = FLAGS)
-            test_preds = model_eval(img_model[0], img_model[1], test_data, verbose = FLAGS.train_verbose, flags = FLAGS)
-            train_data['target'] = list(train_preds[0])
-            test_data['target'] = list(test_preds[0])
-            train_data['pred_img_class'] = list(train_preds[1])
-            test_data['pred_img_class'] = list(test_preds[1])
+        # if FLAGS.zs_model_type != 'DEM_AUG':
+        #     train_preds = model_eval(img_model[0], img_model[1], train_data, verbose = FLAGS.train_verbose, flags = FLAGS)
+        #     test_preds = model_eval(img_model[0], img_model[1], test_data, verbose = FLAGS.train_verbose, flags = FLAGS)
+        #     train_data['target'] = list(train_preds[0])
+        #     test_data['target'] = list(test_preds[0])
+        #     train_data['pred_img_class'] = list(train_preds[1])
+        #     test_data['pred_img_class'] = list(test_preds[1])
         if FLAGS.predict_flat:
             predict_flat(img_model, train_data, test_data)
         else:
