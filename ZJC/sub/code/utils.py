@@ -16,10 +16,10 @@ def extract_array_from_series(s):
 def create_dem_data(df, only_emb = False):
     if only_emb:
         emb = extract_array_from_series(df['emb'])[:, :]
-        attr = np.zeros((emb.shape[0], 50))
+        attr = np.zeros((emb.shape[0], 53))
         return [attr, emb]
     else:
-        return [extract_array_from_series(df['attr'])[:, :50], extract_array_from_series(df['emb'])[:, :]]
+        return [extract_array_from_series(df['encoded_attr'])[:, :], extract_array_from_series(df['emb'])[:, :]]
 
 def create_gcn_data(df, class_to_id):
     return np.array([class_to_id[c] for c in df['class_id'].values]).astype('int32')

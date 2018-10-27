@@ -98,6 +98,7 @@ class DEM:
         self.only_emb = only_emb #flags.only_emb
         self.c2c_neg_cnt = flags.c2c_neg_cnt
         self.wv_len = flags.wv_len
+        self.attr_emb_len = flags.attr_emb_len
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -183,13 +184,15 @@ class DEM:
         return model
 
     def create_dem_bc(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
-        attr_input = layers.Input(shape = (50,), name = 'attr')
+        attr_input = layers.Input(shape = (53,), name = 'attr')
         word_emb = layers.Input(shape = (self.wv_len,), name = 'wv')
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
         label = layers.Input(shape = (1,), name = 'label')
         
-        attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
-                        kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
+        attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
+        attr_dense = layers.GlobalAveragePooling1D()(attr_emb)
+        # attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
+        #                 kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         if only_emb:
             attr_word_emb = word_emb
         else:

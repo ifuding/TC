@@ -55,6 +55,7 @@ default_parser.add_argument("--dem_patience", type=int, default=None)
 default_parser.add_argument("--img_flat_len", type=int, default=None)
 default_parser.add_argument("--zs_model_type", type=str, default=None)
 default_parser.add_argument("--wv_len", type=int, default=None)
+default_parser.add_argument("--attr_emb_len", type=int, default=None)
 default_parser.add_argument("--res_dem_epochs", type=int, default=None)
 default_parser.add_argument("--res_dem_nfold", type=int, default=None)
 ## Data Augmentation args
@@ -105,9 +106,49 @@ def read_class_emb(class_emb_path):
     class_emb = class_emb.apply(lambda s: np.array([float(x) for x in s])[:300], axis = 1)
     return class_emb
 
+def encode_attr():
+    attr1_list = pd.read_csv(path + '/DatasetA/attribute_list.txt', index_col = 0, sep = '\t', header = None)
+    attr2_list = pd.read_csv(path + '/semifinal_image_phase2/attribute_list.txt', index_col = 0, sep = '\t', header = None)
+    attr_dict ={}
+    round2_class_id = ['ZJL' + str(i) for i in range(296, 521)]
+    round1_class_id = list(set(class_id_emb_attr.class_id.unique()) - set(round2_class_id))
+    round1_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round1_class_id)]
+    round2_class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
+    round1_attr_value = extract_array_from_series(round1_class_id_emb_attr['attr'])
+    round2_attr_value = extract_array_from_series(round2_class_id_emb_attr['attr'])
+    round1_attrs = attr1_list[1].values
+    round2_attrs = attr2_list[1].values
+    # round1_attr_to_ind = {}
+    # round2_attr_to_ind = {}
+    for i, attr in enumerate(list(attr1_list[1].values)):
+        if attr not in attr_dict:
+            attr_dict[attr] = set()
+        attr_dict[attr].update(set(round1_attr_value[:, i]))
+    #     round1_attr_to_ind[attr] = i
+        
+    for i, attr in enumerate(list(attr2_list[1].values)):
+        if attr not in attr_dict:
+            attr_dict[attr] = set()
+        attr_dict[attr].update(set(round2_attr_value[:, i]))
+    #     round2_attr_to_ind[attr] = i
+        
+    consant_attr = [attr for attr in attr_dict if len(attr_dict[attr]) == 1 ]
+
+    round1_attr_df = pd.DataFrame(round1_attr_value, columns = round1_attrs)
+    round2_attr_df = pd.DataFrame(round2_attr_value, columns = round2_attrs)
+    attr_df = pd.concat([round1_attr_df, round2_attr_df], sort = False).fillna(-1).drop(columns = consant_attr).astype('str')
+    attr_df = attr_df.apply(lambda s: s.name + '_' + s, axis = 0)
+    # attr_df.values
+    attr_value_dict = dict((v, i) for i, v in enumerate(set(attr_df.values.flatten())))
+    encoded_attr_df = attr_df.apply(lambda s: [attr_value_dict[v] for v in s], axis = 0)
+    class_id_emb_attr['attr'] = list(encoded_attr_df.values)
+    encode_attr_min = encoded_attr_df.min().min()
+    encode_attr_max = encoded_attr_df.max().max()
+    encode_attr_min, encode_attr_max
+
 def load_data():
     print("\nData Load Stage")
-    with open(path + 'round2_class_id_emb_attr.pkl', 'rb') as handle:
+    with open(path + '/round2B_class_id_emb_attr_ft1300_encodedAttr.pkl', 'rb') as handle:
         class_id_emb_attr = pickle.load(handle)
         # class_id_emb_attr.drop(columns = ['emb_glove', 'emb_fasttext', 'emb_glove_crawl', 'emb_glove_crawl_42B'])
     with open(path + '/round1A_train_img.pkl', 'rb') as handle:
