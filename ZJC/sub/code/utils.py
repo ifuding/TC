@@ -31,10 +31,10 @@ def neg_aug_data(pos_data, train_class_id, class_id_emb_attr = None, c2c_neg_cnt
     #     rs = np.random.RandomState(seed=420)
     #     perm_ind_array = rs.permutation(rs.permutation(rs.permutation(rs.permutation(ind_array))))
         perm_ind_array = np.random.permutation(ind_array)
-        perm_label = np.zeros(pos_len)
+        perm_label = np.zeros(pos_len, dtype = 'float')
         perm_label[train_class_id == train_class_id[perm_ind_array]] = 1
         perm_img_feature_map = pos_data[0][perm_ind_array] 
-
+        perm_label = perm_label.reshape((pos_len, 1))
         neg_data = [perm_img_feature_map] + pos_data[1:3] + [perm_label]
     else:
         train_class_id_uniq = np.unique(train_class_id)
@@ -58,7 +58,27 @@ def neg_aug_data(pos_data, train_class_id, class_id_emb_attr = None, c2c_neg_cnt
             neg_imgs.extend(per_class_neg_imgs)
         neg_data = [np.array(neg_imgs), np.array(neg_attrs), np.array(neg_embs), np.zeros(len(neg_imgs))]
     return neg_data
-        
+
+def create_dem_bc_aug_data(df, neg_aug = 0, only_emb = False, class_id_emb_attr = None, c2c_neg_cnt = None):
+    """
+    """
+    train_data = [extract_array_from_series(df['img'])] + create_dem_data(df, only_emb)
+    train_len = train_data[0].shape[0]
+    train_data = train_data + [np.ones((train_len, 1), dtype = 'float')]
+    merge_data = train_data
+    if neg_aug > 0:
+        train_class_id = extract_array_from_series(df['class_id'])
+        for i in range(neg_aug):
+            neg_data = neg_aug_data(train_data, train_class_id, 
+                                    class_id_emb_attr = class_id_emb_attr, 
+                                    c2c_neg_cnt = c2c_neg_cnt,
+                                    only_emb = only_emb)
+            merge_data = [np.r_[merge_data[i], neg_data[i]] for i in range(len(merge_data))]
+        print ('DEM BC Data Train Len, Pos, Neg:', train_len, np.sum(merge_data[-1]), np.sum(merge_data[-1] == 0))
+        return merge_data
+    else:
+        return train_data
+
 def create_dem_bc_data(df, neg_aug = 0, only_emb = False, class_id_emb_attr = None, c2c_neg_cnt = None):
     """
     """
@@ -284,6 +304,15 @@ def model_eval(model, model_type, eval_df, cand_class_id_emb_attr = None, img_fe
             else:
                 img_feature_map = img_model.predict(preprocess_img(eval_df['img']), verbose = verbose)
                 pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map, img_feature_map)
+        elif model_type == 'DEM_BC_AUG':
+            img_model = Model(inputs = model.inputs[0], outputs = model.outputs[-1])
+            img_feature_map = img_model.predict(preprocess_img(eval_df['img']), verbose = 2)
+            zs_model = Model(inputs = model.inputs[1:3], outputs = model.outputs[0])
+            cand_feature_map = zs_model.predict(create_dem_data(cand_class_id_emb_attr, only_emb = only_emb), verbose = 2)
+            zs_model = Model(inputs = model.get_layer('attr_x_img_model').inputs, 
+                            outputs = model.get_layer('attr_x_img_model').outputs)
+            pred = find_nearest_class(cand_class_id_emb_attr, eval_df, cand_feature_map = cand_feature_map, img_feature_map = img_feature_map,
+                                    zs_model = zs_model, model_type = model_type)
         scores = None
         if 'class_id' in eval_df.columns:
             scores = calc_detailed_accuracy(eval_df, pred, class_id_dict)

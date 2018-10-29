@@ -32,9 +32,11 @@ class AccuracyEvaluation(Callback):
 
         self.interval = interval
         # print (validation_data)
-#         self.X_val, _, 
-        self.y_val = validation_data[2]
-        if model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
+#         self.X_val, _,
+        self.y_val = None
+        if model_type != 'DEM_BC_AUG':
+            self.y_val = validation_data[2]
+        elif model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
             self.y_val = validation_data[0]
         self.verbose = verbose
         self.scores = scores
@@ -99,7 +101,10 @@ class DEM:
         self.c2c_neg_cnt = flags.c2c_neg_cnt
         self.wv_len = flags.wv_len
         self.attr_emb_len = flags.attr_emb_len
-        self.attr_emb_transform = flags.attr_emb_transform
+        self.rotation_range = flags.rotation_range
+        self.shear_range = flags.shear_range 
+        self.zoom_range = flags.zoom_range
+        self.horizontal_flip = flags.horizontal_flip
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -109,20 +114,18 @@ class DEM:
         elif model_type == 'AE':
             self.model = self.create_ae(img_flat_len = img_flat_len)
         elif model_type == 'DEM_AUG':
-            self.rotation_range = flags.rotation_range
-            self.shear_range = flags.shear_range 
-            self.zoom_range = flags.zoom_range
-            self.horizontal_flip = flags.horizontal_flip
             self.model = self.create_dem_aug(img_flat_len = img_flat_len)
         elif model_type == 'DEM_BC':
             self.model = self.create_dem_bc(img_flat_len = img_flat_len, only_emb = self.only_emb)
+        elif model_type == 'DEM_BC_AUG':
+            self.model = self.create_dem_bc_aug(img_flat_len = img_flat_len, only_emb = self.only_emb)
         elif model_type == 'RES_DEM_BC':
             self.model = self.create_res_dem_bc(img_flat_len = img_flat_len, only_emb = self.only_emb)
 
         self.class_id_dict = {
 #                              'seen_class': seen_class,
                              'Unseen_class': unseen_class,
-                             'Unseen_round1_id': unseen_round1_id,
+#                              'Unseen_round1_id': unseen_round1_id,
                              'Unseen_round2_id': unseen_round2_id,}
 
     def create_dem(self, kernel_initializer = 'he_normal', img_flat_len = 1024):
@@ -191,17 +194,7 @@ class DEM:
         label = layers.Input(shape = (1,), name = 'label')
         
         attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
-        if self.attr_emb_transform == 'avg':
-            attr_dense = layers.GlobalAveragePooling1D(name = 'attr_avg')(attr_emb)
-        elif self.attr_emb_transform == 'max':
-            attr_dense = layers.GlobalMaxPooling1D(name = 'attr_max')(attr_emb)
-        elif self.attr_emb_transform == 'avg_max':
-            attr_dense = layers.Concatenate(name = 'attr_avg_max_conc')([
-                layers.GlobalAveragePooling1D(name = 'attr_avg')(attr_emb),
-                layers.GlobalMaxPooling1D(name = 'attr_max')(attr_emb),
-                ])
-        elif self.attr_emb_transform == 'flat':
-            attr_dense = layers.Flatten(name = 'attr_flat')(attr_emb)
+        attr_dense = layers.Flatten()(attr_emb) #layers.GlobalAveragePooling1D()(attr_emb)
         # attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
         #                 kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         if only_emb:
@@ -229,6 +222,53 @@ class DEM:
         
         bc_loss = K.mean(binary_crossentropy(label, out))
         model = Model([imag_classifier, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out])
+        model.add_loss(bc_loss)
+        model.compile(optimizer=Adam(lr=1e-4), loss=None)
+        return model
+
+    def create_dem_bc_aug(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
+        attr_input = layers.Input(shape = (53,), name = 'attr')
+        word_emb = layers.Input(shape = (1600,), name = 'wv')
+        img_input = layers.Input(shape = (72, 72, 3))
+        label = layers.Input(shape = (1,), name = 'label')
+        
+        # img_flat_model = Model(inputs = self.img_model[0].inputs, outputs = self.img_model[0].get_layer(name = 'avg_pool').output)
+        imag_classifier = self.img_flat_model(img_input)
+        if only_emb:
+            attr_word_emb = word_emb
+        else:
+            attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
+            attr_dense = layers.Flatten()(attr_emb)
+            attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
+        attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
+#                                                                             int(img_flat_len * 4),
+                                                                            int(img_flat_len * 2),
+                                                                            int(img_flat_len * 1.5), 
+                                                                            int(img_flat_len * 1.25), 
+#                                                                             int(img_flat_len * 1.125),
+                                                                            int(img_flat_len)
+                                                                            ], \
+                                                activation = 'relu', resnet = False, drop_out_ratio = 0.2)
+#         attr_word_emb_dense = self.full_connect_layer(attr_word_emb_dense, hidden_dim = [img_flat_len], 
+#                                                 activation = 'relu')
+        
+        attr_x_img = layers.Lambda(lambda x: x[0] * x[1], name = 'attr_x_img')([attr_word_emb_dense, imag_classifier])
+#         attr_x_img = layers.Concatenate(name = 'attr_x_img')([attr_word_emb_dense, imag_classifier])
+    
+        attr_img_input = layers.Input(shape = (img_flat_len,), name = 'attr_img_input')
+#         attr_img_input = layers.Input(shape = (img_flat_len * 2,), name = 'attr_img_input')
+        proba = self.full_connect_layer(attr_img_input, hidden_dim = [1], activation = 'sigmoid')
+        attr_img_model = Model(inputs = attr_img_input, outputs = proba, name = 'attr_x_img_model')
+        
+        out = attr_img_model([attr_x_img])
+        
+#         dem_bc_model = self.create_dem_bc(kernel_initializer = 'he_normal', 
+#                                            img_flat_len = img_flat_len, 
+#                                            only_emb = only_emb)
+#         attr_word_emb_dense, out = dem_bc_model([imag_classifier, attr_input, word_emb, label])
+        
+        bc_loss = K.mean(binary_crossentropy(label, out))
+        model = Model([img_input, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out])
         model.add_loss(bc_loss)
         model.compile(optimizer=Adam(lr=1e-4), loss=None)
         return model
@@ -420,6 +460,10 @@ class DEM:
             return create_dem_bc_data(df, neg_aug, self.only_emb, 
                 class_id_emb_attr = self.class_id_emb_attr[self.class_id_emb_attr.class_id.isin(self.seen_class)],
                 c2c_neg_cnt = self.c2c_neg_cnt)
+        elif self.model_type == 'DEM_BC_AUG':
+            return create_dem_bc_aug_data(df, neg_aug, self.only_emb, 
+                class_id_emb_attr = self.class_id_emb_attr[self.class_id_emb_attr.class_id.isin(self.seen_class)],
+                c2c_neg_cnt = self.c2c_neg_cnt)
 
     def train(self, train_part_df, validate_part_df, num_fold = 0):
         """
@@ -444,7 +488,7 @@ class DEM:
                             flags = self.flags,
                             only_emb = self.only_emb)
         ]
-        if self.model_type == 'DEM_AUG':
+        if self.model_type == 'DEM_BC_AUG':
             datagen = MixedImageDataGenerator(
                     rotation_range=self.rotation_range,
                     shear_range = self.shear_range,
