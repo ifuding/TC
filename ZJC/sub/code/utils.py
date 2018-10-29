@@ -16,10 +16,10 @@ def extract_array_from_series(s):
 def create_dem_data(df, only_emb = False):
     if only_emb:
         emb = extract_array_from_series(df['emb'])[:, :]
-        attr = np.zeros((emb.shape[0], 53))
+        attr = np.zeros((emb.shape[0], 22))
         return [attr, emb]
     else:
-        return [extract_array_from_series(df['encoded_attr'])[:, :], extract_array_from_series(df['emb'])[:, :]]
+        return [extract_array_from_series(df['intersect_attr'])[:, :], extract_array_from_series(df['emb'])[:, :]]
 
 def create_gcn_data(df, class_to_id):
     return np.array([class_to_id[c] for c in df['class_id'].values]).astype('int32')
@@ -84,7 +84,7 @@ def create_dem_bc_data(df, neg_aug = 0, only_emb = False, class_id_emb_attr = No
     """
     train_data = [extract_array_from_series(df['target'])] + create_dem_data(df, only_emb)
     train_len = train_data[0].shape[0]
-    train_data = train_data + [np.ones(train_len)]
+    train_data = train_data + [np.ones((train_len, 1), dtype = 'float')]
     merge_data = train_data
     if neg_aug > 0:
         train_class_id = extract_array_from_series(df['class_id'])

@@ -34,10 +34,10 @@ class AccuracyEvaluation(Callback):
         # print (validation_data)
 #         self.X_val, _,
         self.y_val = None
-        if model_type != 'DEM_BC_AUG':
-            self.y_val = validation_data[2]
-        elif model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
+        if model_type == 'DEM_BC' or model_type == 'RES_DEM_BC':
             self.y_val = validation_data[0]
+        elif model_type != 'DEM_BC_AUG':
+            self.y_val = validation_data[2]
         self.verbose = verbose
         self.scores = scores
         self.cand_class_id_emb_attr = cand_class_id_emb_attr
@@ -106,6 +106,8 @@ class DEM:
         self.zoom_range = flags.zoom_range
         self.horizontal_flip = flags.horizontal_flip
         self.attr_len = flags.attr_len
+        self.attr_emb_transform = flags.attr_emb_transform
+        self.pixel = flags.pixel
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -126,7 +128,7 @@ class DEM:
         self.class_id_dict = {
 #                              'seen_class': seen_class,
                              'Unseen_class': unseen_class,
-#                              'Unseen_round1_id': unseen_round1_id,
+                             'Unseen_round1_id': unseen_round1_id,
                              'Unseen_round2_id': unseen_round2_id,}
 
     def create_dem(self, kernel_initializer = 'he_normal', img_flat_len = 1024):
@@ -194,10 +196,12 @@ class DEM:
         imag_classifier = layers.Input(shape = (img_flat_len,), name = 'img')
         label = layers.Input(shape = (1,), name = 'label')
         
-        attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
-        attr_dense = layers.Flatten()(attr_emb) #layers.GlobalAveragePooling1D()(attr_emb)
-        # attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
-        #                 kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
+        if self.attr_emb_transform == 'flat':
+            attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
+            attr_dense = layers.Flatten()(attr_emb) #layers.GlobalAveragePooling1D()(attr_emb)
+        elif self.attr_emb_transform == 'dense':
+            attr_dense = layers.Dense(self.attr_emb_len, use_bias = True, kernel_initializer=kernel_initializer, 
+                        kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         if only_emb:
             attr_word_emb = word_emb
         else:
@@ -228,18 +232,22 @@ class DEM:
         return model
 
     def create_dem_bc_aug(self, kernel_initializer = 'he_normal', img_flat_len = 1024, only_emb = False):
-        attr_input = layers.Input(shape = (53,), name = 'attr')
-        word_emb = layers.Input(shape = (1600,), name = 'wv')
-        img_input = layers.Input(shape = (72, 72, 3))
+        attr_input = layers.Input(shape = (self.attr_len,), name = 'attr')
+        word_emb = layers.Input(shape = (self.wv_len,), name = 'wv')
+        img_input = layers.Input(shape = (self.pixel, self.pixel, 3))
         label = layers.Input(shape = (1,), name = 'label')
         
         # img_flat_model = Model(inputs = self.img_model[0].inputs, outputs = self.img_model[0].get_layer(name = 'avg_pool').output)
         imag_classifier = self.img_flat_model(img_input)
+        if self.attr_emb_transform == 'flat':
+            attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
+            attr_dense = layers.Flatten()(attr_emb) #layers.GlobalAveragePooling1D()(attr_emb)
+        elif self.attr_emb_transform == 'dense':
+            attr_dense = layers.Dense(self.attr_emb_len, use_bias = True, kernel_initializer=kernel_initializer, 
+                        kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         if only_emb:
             attr_word_emb = word_emb
         else:
-            attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
-            attr_dense = layers.Flatten()(attr_emb)
             attr_word_emb = layers.Concatenate(name = 'attr_word_emb')([word_emb, attr_dense])
         attr_word_emb_dense = self.full_connect_layer(attr_word_emb, hidden_dim = [
 #                                                                             int(img_flat_len * 4),
@@ -269,7 +277,7 @@ class DEM:
 #         attr_word_emb_dense, out = dem_bc_model([imag_classifier, attr_input, word_emb, label])
         
         bc_loss = K.mean(binary_crossentropy(label, out))
-        model = Model([img_input, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out])
+        model = Model([img_input, attr_input, word_emb, label], outputs = [attr_word_emb_dense, out, imag_classifier])
         model.add_loss(bc_loss)
         model.compile(optimizer=Adam(lr=1e-4), loss=None)
         return model
