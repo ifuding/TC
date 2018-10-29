@@ -99,6 +99,7 @@ class DEM:
         self.c2c_neg_cnt = flags.c2c_neg_cnt
         self.wv_len = flags.wv_len
         self.attr_emb_len = flags.attr_emb_len
+        self.attr_emb_transform = flags.attr_emb_transform
         if model_type == 'DEM':
             self.model = self.create_dem(img_flat_len = img_flat_len)
         elif model_type == 'GCN':
@@ -121,7 +122,7 @@ class DEM:
         self.class_id_dict = {
 #                              'seen_class': seen_class,
                              'Unseen_class': unseen_class,
-#                              'Unseen_round1_id': unseen_round1_id,
+                             'Unseen_round1_id': unseen_round1_id,
                              'Unseen_round2_id': unseen_round2_id,}
 
     def create_dem(self, kernel_initializer = 'he_normal', img_flat_len = 1024):
@@ -190,7 +191,17 @@ class DEM:
         label = layers.Input(shape = (1,), name = 'label')
         
         attr_emb = layers.Embedding(294, self.attr_emb_len)(attr_input)
-        attr_dense = layers.GlobalAveragePooling1D()(attr_emb)
+        if self.attr_emb_transform == 'avg':
+            attr_dense = layers.GlobalAveragePooling1D(name = 'attr_avg')(attr_emb)
+        elif self.attr_emb_transform == 'max':
+            attr_dense = layers.GlobalMaxPooling1D(name = 'attr_max')(attr_emb)
+        elif self.attr_emb_transform == 'avg_max':
+            attr_dense = layers.Concatenate(name = 'attr_avg_max_conc')([
+                layers.GlobalAveragePooling1D(name = 'attr_avg')(attr_emb),
+                layers.GlobalMaxPooling1D(name = 'attr_max')(attr_emb),
+                ])
+        elif self.attr_emb_transform == 'flat':
+            attr_dense = layers.Flatten(name = 'attr_flat')(attr_emb)
         # attr_dense = layers.Dense(self.wv_len, use_bias = True, kernel_initializer=kernel_initializer, 
         #                 kernel_regularizer = l2(1e-4), name = 'attr_dense')(attr_input)
         if only_emb:

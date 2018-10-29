@@ -56,8 +56,10 @@ default_parser.add_argument("--img_flat_len", type=int, default=None)
 default_parser.add_argument("--zs_model_type", type=str, default=None)
 default_parser.add_argument("--wv_len", type=int, default=None)
 default_parser.add_argument("--attr_emb_len", type=int, default=None)
+default_parser.add_argument("--attr_emb_transform", type=str, default=None)
 default_parser.add_argument("--res_dem_epochs", type=int, default=None)
 default_parser.add_argument("--res_dem_nfold", type=int, default=None)
+default_parser.add_argument("--only_use_round2", type=str2bool.__func__, default=False)
 ## Data Augmentation args
 default_parser.add_argument("--rotation_range", type=int, default=0)
 default_parser.add_argument("--shear_range", type=float, default=0.)
@@ -78,6 +80,7 @@ default_parser.add_argument("--ft_threads", type=int, default=None)
 default_parser.add_argument("--ft_iter", type=int, default=None)
 default_parser.add_argument("--ft_verbose", type=int, default=None)
 default_parser.add_argument("--ft_lrUpdateRate", type=int, default=None)
+default_parser.add_argument("--ft_min_count", type=int, default=None)
 
 
 # FLAGS = flags.FLAGS
@@ -148,7 +151,7 @@ def encode_attr():
 
 def load_data():
     print("\nData Load Stage")
-    with open(path + '/round2B_class_id_emb_attr_ft1300_encodedAttr.pkl', 'rb') as handle:
+    with open(path + '/round2B_class_id_emb_attr.pkl', 'rb') as handle:
         class_id_emb_attr = pickle.load(handle)
         # class_id_emb_attr.drop(columns = ['emb_glove', 'emb_fasttext', 'emb_glove_crawl', 'emb_glove_crawl_42B'])
     with open(path + '/round1A_train_img.pkl', 'rb') as handle:
@@ -477,21 +480,26 @@ def train_ft():
     ft_home = './fasttext'
     os.chmod(ft_home, 0o775)
     train_file = path + '/wiki_corpus'
+    tmp_model_dir = "./model_sub/"
+    if not os.path.isdir(tmp_model_dir):
+        os.makedirs(tmp_model_dir, exist_ok=True)
     # train the model
     model_wrapper, tmp_model_dir = FastTextAddArgs.train(ft_home, 
-        train_file, 
+        train_file,
+        tmp_model_dir,
         size = FLAGS.ft_size, 
         model = FLAGS.ft_model,
         threads = FLAGS.ft_threads,
         iter = FLAGS.ft_iter,
         verbose = FLAGS.ft_verbose,
-        lrUpdateRate = FLAGS.ft_lrUpdateRate)
+        lrUpdateRate = FLAGS.ft_lrUpdateRate,
+        min_count = FLAGS.ft_min_count)
 
     print(model_wrapper)
     print (tmp_model_dir)
     # tmp_model_dir = "./model_sub/"
-    if not os.path.isdir(tmp_model_dir):
-        os.makedirs(tmp_model_dir, exist_ok=True)
+    # if not os.path.isdir(tmp_model_dir):
+    #     os.makedirs(tmp_model_dir, exist_ok=True)
     # model_wrapper.save(tmp_model_dir + 'ft.gz')
     if not os.path.isdir(FLAGS.output_model_path):
         os.makedirs(FLAGS.output_model_path, exist_ok=True)
@@ -536,7 +544,7 @@ if __name__ == "__main__":
                         only_emb = True,
                         model_type = 'DEM_BC')
                 zs_models[0][0].save('./only_emb.h5')
-            if not FLAGS.only_emb:
+            if FLAGS.only_use_round2:
                 train_data = train_data[train_data.class_id.isin(round2_class_id)]
                 class_id_emb_attr = class_id_emb_attr[class_id_emb_attr.class_id.isin(round2_class_id)]
             zs_models, score_df = train_zs_model(train_data, #[train_data.class_id.isin(round2_class_id)], 
